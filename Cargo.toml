@@ -1,0 +1,13 @@
+[package]
+name = "voxels"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.68"
+bytemuck = { version = "1.13.1", features = ["derive"] }
+pollster = { version = "0.3", features = ["macro"] }
+winit = "0.29.1"
+wgpu = "0.19.1"
+glam = {version = "0.30", features = ["bytemuck"]}
+noise = "0.8"
