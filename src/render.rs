@@ -47,8 +47,8 @@ struct Vertex {
 
 const MAPWIDTH: usize = 50;
 const MAPLENGTH: usize = 50;
-const PERLINSCALE: f64 = 0.1;
-const MAPMAXHEIGHT: f64 = 4.0;
+const PERLINSCALE: f64 = 0.05; //controls the smoothness 
+const MAPMAXHEIGHT: f64 = 7.0;
 
 const WIDTH:u32 = 1920;
 const HEIGHT:u32 = 1080;
