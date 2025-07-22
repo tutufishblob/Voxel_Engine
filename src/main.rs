@@ -1,16 +1,12 @@
 use {
-    crate::{camera::Camera, render::Rasterizer},
-        anyhow::{Context, Result},
-        glam::{Mat4,Vec3}, std::{collections::HashSet,
-        time::{Duration,Instant}},
-        wgpu::TextureView, winit::{
+    crate::{camera::Camera, render::{generate_and_write_terrain, Rasterizer}}, anyhow::{Context, Result}, glam::{Mat4,Vec3}, noise::{NoiseFn, Perlin}, std::{collections::HashSet,
+        time::{Duration,Instant}}, wgpu::TextureView, winit::{
         dpi::{LogicalPosition, PhysicalPosition, Position},
         event::{self, DeviceEvent, ElementState, Event, KeyEvent, WindowEvent},
         event_loop::{ControlFlow, EventLoop},
         keyboard::{KeyCode, PhysicalKey},
         window::{Window, WindowBuilder},
-        },
-        noise::{Perlin,NoiseFn}
+        }
 };
 
 mod render;
@@ -20,19 +16,26 @@ const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
 
 
-const UPDATE_INTERVAL: Duration = Duration::from_micros(6944);
+const UPDATE_INTERVAL: Duration = Duration::from_nanos(8_333_333);
+const FRAME_INTERVAL: Duration = Duration::from_micros(6944);
 const MOVESPEED: f32 = 0.15;
 const SENSITIVITY: f64 = 0.1;
 const CENTER: LogicalPosition<u32> = LogicalPosition{x: WIDTH/2 as u32, y: HEIGHT/2 as u32};
+const GRAVITY: f32 = -9.81;
+
 
 #[pollster::main]
 async fn main() -> Result<()> {
+    
+
+
     let mut current_view = Camera::new(Vec3::new(0.0, 2.0, 0.0),0.0,90.0);
 
     let mut pressed_key = HashSet::new();
 
     //let update_interval = Duration::from_millis(100);
     let mut last_update = Instant::now();
+    let mut last_frame = Instant::now();
 
     let mut previous_cursor_position:Option<LogicalPosition<f64>> = None;
 
@@ -45,6 +48,8 @@ async fn main() -> Result<()> {
         .build(&event_loop)?;
     let (device, queue, surface) = connect_to_gpu(&window).await?;
     let mut renderer = render::Rasterizer::new(device, queue, WIDTH, HEIGHT, current_view);
+    let display_buffers = generate_and_write_terrain(&renderer);
+
 
     _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
     window.set_cursor_visible(false);
@@ -61,8 +66,12 @@ async fn main() -> Result<()> {
                     update_position(&mut renderer, &mut current_view, &pressed_key);
                     
                     last_update = now;
+                    
+                }     
+                if now - last_frame >= FRAME_INTERVAL{
                     window.request_redraw();
-                }       
+                    last_frame = now;
+                }  
                          
             },
             Event::DeviceEvent {event ,..} => {
@@ -109,7 +118,7 @@ async fn main() -> Result<()> {
 
                     
 
-                    renderer.render_frame(&render_target);
+                    renderer.render_frame(&render_target, &display_buffers);
 
                     frame.present();
                     

@@ -2,11 +2,24 @@ use core::f32;
 
 use bytemuck::{bytes_of, checked::cast_slice, Pod, Zeroable};
 use glam::{Mat4, Vec2, Vec3};
-use wgpu::{core::device::queue, util::DeviceExt};
+use wgpu::{core::device::queue, util::DeviceExt, Buffer};
 use crate::camera::Camera;
 use noise::{core::perlin, NoiseFn, Perlin};
 
-pub struct Rasterizer {
+pub struct BufferStorage {
+    voxel_vertex_buffer: Buffer,
+    voxel_index_buffer: Buffer,
+    voxel_index_length: usize,
+
+    wireframe_vertex_buffer: Buffer,
+    wireframe_index_buffer: Buffer,
+    wireframe_index_length: usize,
+
+    crosshair_vertex_buffer: Buffer,
+    crosshair_index_buffer: Buffer,
+}
+
+pub struct Rasterizer{
     device: wgpu::Device,
     queue: wgpu::Queue,
 
@@ -25,7 +38,11 @@ pub struct Rasterizer {
     wireframe_pipeline: Option<wgpu::RenderPipeline>,
 
     crosshair_pipeline: wgpu::RenderPipeline,
+
+    // display_buffers: BufferStorage<'a>,
 }
+
+
 
 #[derive(Copy,Clone,Pod,Zeroable)]
 #[repr(C)]
@@ -45,10 +62,10 @@ struct Vertex {
     color: Vec3
 }
 
-const MAPWIDTH: usize = 50;
-const MAPLENGTH: usize = 50;
-const PERLINSCALE: f64 = 0.05; //controls the smoothness 
-const MAPMAXHEIGHT: f64 = 7.0;
+const MAPWIDTH: usize = 675;
+const MAPLENGTH: usize = 675;
+const PERLINSCALE: f64 = 0.01; //controls the smoothness 
+const MAPMAXHEIGHT: f64 = 50.0;
 
 const WIDTH:u32 = 1920;
 const HEIGHT:u32 = 1080;
@@ -94,13 +111,13 @@ const CUBE_VERTICES: [Vertex; 24] = [
     Vertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 1.0) },
 ];
 
-const CUBE_INDICES: [u16; 36] = [
+const CUBE_INDICES: [u32; 36] = [
     0, 1, 2, 0, 2, 3,       // front
-    4, 5, 6, 4, 6, 7,       // back
+    6, 5, 4, 7, 6, 4,      // back
     8, 9, 10, 8, 10, 11,    // left
-    12, 13, 14, 12, 14, 15, // right
+    14, 13, 12, 15, 14, 12,// right
     16, 17, 18, 16, 18, 19, // top
-    20, 21, 22, 20, 22, 23, // bottom
+    22, 21, 20, 23, 22, 20, // bottom
 ];
 
 const WIREFRAME_CORNERS: [Vec3; 8] = [
@@ -114,7 +131,7 @@ const WIREFRAME_CORNERS: [Vec3; 8] = [
     Vec3::new(0.0, 1.0, 1.0), // 7
 ];
 
-const WIREFRAME_INDICES: [u16; 24] = [
+const WIREFRAME_INDICES: [u32; 24] = [
     // front face
     0, 1, 1, 2, 
     2, 3, 3, 0,
@@ -171,23 +188,19 @@ const CROSSHAIR_INDICDES: [u16; 12] = [
     6, 7, 4,
 ];
 
+pub fn generate_and_write_terrain(renderer: &Rasterizer) -> BufferStorage{
 
+        // let limits = renderer.device.limits();
+        // println!("Max buffer size: {}", limits.max_buffer_size);
 
-
-impl Rasterizer {
-
-    
-
-    pub fn render_frame(&self, target: &wgpu::TextureView) {
-        
         let perlin = Perlin::new(0);
 
 
         let mut voxel_vertex_input: Vec<Vertex> = vec![];
         let mut wireframe_vertex_input: Vec<Vec3> = vec![];
 
-        let mut voxel_index_input: Vec<u16> = vec![];
-        let mut wireframe_index_input: Vec<u16> = vec![];
+        let mut voxel_index_input: Vec<u32> = vec![];
+        let mut wireframe_index_input: Vec<u32> = vec![];
 
         let mut height_map: Vec<Vec<u16>> = vec![vec![0;MAPWIDTH];MAPLENGTH];
 
@@ -198,18 +211,6 @@ impl Rasterizer {
             }
         }
 
-        // for (i,cubes) in CHUNK_COORDS.iter().enumerate(){
-        //     for vertices in CUBE_VERTICES{
-        //         let temp_vertex = Vertex{
-        //             position: vertices.position + cubes,
-        //             color: vertices.color,
-        //         };
-        //         voxel_vertex_input.push(temp_vertex);
-        //     }
-        //     for indices in CUBE_INDICES{
-        //         voxel_index_input.push(indices + (24 * i as u16));
-        //     }
-        // }
 
         for (i,rows) in height_map.iter().enumerate(){
             for (j, height) in rows.iter().enumerate(){
@@ -221,7 +222,7 @@ impl Rasterizer {
                     voxel_vertex_input.push(temp_vertex);
                 }
                 for indices in CUBE_INDICES{
-                    voxel_index_input.push(indices + (24 * ((i * height_map.len()) + j) as u16));
+                    voxel_index_input.push(indices as u32 + (24 * ((i * height_map.len()) + j) as u32));
                 }
 
                 for vertices in WIREFRAME_CORNERS{
@@ -229,74 +230,72 @@ impl Rasterizer {
                     wireframe_vertex_input.push(vertices+ Vec3::new(i as f32, *height as f32, j as f32));
                 }
                 for indices in WIREFRAME_INDICES{
-                    wireframe_index_input.push(indices + (8 * ((i * height_map.len()) + j) as u16));
+                    wireframe_index_input.push(indices as u32 + (8 * ((i * height_map.len()) + j) as u32));
                 }
             }
         }
 
-
         
 
-        // for (i,cubes) in CHUNK_COORDS.iter().enumerate(){
-        //     for vertices in WIREFRAME_CORNERS{
-                
-        //         wireframe_vertex_input.push(vertices+cubes);
-        //     }
-        //     for indices in WIREFRAME_INDICES{
-        //         wireframe_index_input.push(indices + (8 * i as u16));
-        //     }
-        // }
-
-        // println!("New loop, {}", wireframe_vertex_input.len());
-        // println!("Vertex");
-        // for indices in &wireframe_vertex_input{
-            
-        //     println!("{}",indices);
-        // }
-        // println!("Index");
-        // for indices in &wireframe_index_input{
-            
-        //     println!("{}",indices);
-        // }
-        
-
-        let voxel_vertex_buffer = &self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let voxel_vertex_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Cube Vertex Buffer"),
             contents: bytemuck::cast_slice(&voxel_vertex_input),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let voxel_index_buffer = &self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let voxel_index_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(&voxel_index_input),
             usage: wgpu::BufferUsages::INDEX,
         });
 
 
-        let wireframe_vertex_buffer = &self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
+        let wireframe_vertex_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
             label: Some("Wireframe Vertex Buffer"),
             contents: bytemuck::cast_slice(&wireframe_vertex_input),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let wireframe_index_buffer = &self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let wireframe_index_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Wireframe Index Buffer"),
             contents: bytemuck::cast_slice(&wireframe_index_input),
             usage: wgpu::BufferUsages::INDEX,
         });
 
 
-        let crosshair_vertex_buffer = &self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let crosshair_vertex_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Cube Vertex Buffer"),
             contents: bytemuck::cast_slice(&CROSSHAIR_VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let crosshair_index_buffer = &self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let crosshair_index_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(&CROSSHAIR_INDICDES),
             usage: wgpu::BufferUsages::INDEX,
         });
+
+        BufferStorage {
+            voxel_vertex_buffer: voxel_vertex_buffer,
+            voxel_index_buffer: voxel_index_buffer,
+            voxel_index_length: voxel_index_input.len(),
+
+            wireframe_vertex_buffer: wireframe_vertex_buffer,
+            wireframe_index_buffer: wireframe_index_buffer,
+            wireframe_index_length: wireframe_index_input.len(),
+
+            crosshair_vertex_buffer: crosshair_vertex_buffer,
+            crosshair_index_buffer: crosshair_index_buffer,
+        }
+
+    }
+
+
+impl Rasterizer {
+
+    pub fn render_frame(&self, target: &wgpu::TextureView, display_buffers: &BufferStorage) {
+        
+        
 
         //#TODO change this so that the camera has its own buffer and is not in the uniform buffer probably
         self.queue.write_buffer(&self.uniform_buffer, 0, bytes_of(&self.uniforms));//updates uniform buffer with new camera angle
@@ -317,9 +316,6 @@ impl Rasterizer {
         });
 
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-
-
 
         let mut encoder = self
             .device
@@ -353,10 +349,10 @@ impl Rasterizer {
         render_pass.set_pipeline(&self.display_pipeline);
         render_pass.set_bind_group(0, &self.display_bind_group, &[]);
 
-        render_pass.set_vertex_buffer(0, voxel_vertex_buffer.slice(..));
-        render_pass.set_index_buffer(voxel_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_vertex_buffer(0, display_buffers.voxel_vertex_buffer.slice(..));
+        render_pass.set_index_buffer(display_buffers.voxel_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         
-        render_pass.draw_indexed(0..voxel_index_input.len() as u32, 0,0..1);
+        render_pass.draw_indexed(0..display_buffers.voxel_index_length as u32, 0,0..1);
 
         match (self.wireframe_pipeline.as_ref(), self.wireframe_bind_group.as_ref()) {
             
@@ -365,9 +361,9 @@ impl Rasterizer {
                 render_pass.set_pipeline(wireframe_pipeline);
                 render_pass.set_bind_group(0, wireframe_bind_group, &[]);
 
-                render_pass.set_vertex_buffer(0, wireframe_vertex_buffer.slice(..));
-                render_pass.set_index_buffer(wireframe_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..wireframe_index_input.len() as u32, 0,0..1);
+                render_pass.set_vertex_buffer(0, display_buffers.wireframe_vertex_buffer.slice(..));
+                render_pass.set_index_buffer(display_buffers.wireframe_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..display_buffers.wireframe_index_length as u32, 0,0..1);
             }
             _ => {
 
@@ -376,8 +372,8 @@ impl Rasterizer {
         
         render_pass.set_pipeline(&self.crosshair_pipeline);
 
-        render_pass.set_vertex_buffer(0, crosshair_vertex_buffer.slice(..));
-        render_pass.set_index_buffer(crosshair_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.set_vertex_buffer(0, display_buffers.crosshair_vertex_buffer.slice(..));
+        render_pass.set_index_buffer(display_buffers.crosshair_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         
         render_pass.draw_indexed(0..12 as u32, 0,0..1);
 
@@ -411,7 +407,7 @@ impl Rasterizer {
                 fov_y,
                 aspect_ratio,
                 0.1,
-                100.0
+                500.0
             )
         };
 
@@ -457,6 +453,8 @@ impl Rasterizer {
                 }),
             }],
         });
+
+
 
         Rasterizer {
             device,
@@ -538,6 +536,7 @@ fn create_display_pipeline(
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
             front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
             polygon_mode: wgpu::PolygonMode::Fill,
             ..Default::default()
         },
@@ -615,6 +614,7 @@ fn create_wireframe_pipeline(
         })),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::LineList,
+            cull_mode: Some(wgpu::Face::Back),
             ..Default::default()
         },
         vertex: wgpu::VertexState {
