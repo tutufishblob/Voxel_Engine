@@ -17,27 +17,29 @@ mod physics;
 const WIDTH: u32 = 960;
 const HEIGHT: u32 = 1014;
 
-
+const JUMP_INTERVAL: Duration = Duration::from_millis(250);
 const UPDATE_INTERVAL: Duration = Duration::from_nanos(8_333_333);
 const FRAME_INTERVAL: Duration = Duration::from_micros(6944);
 const MOVESPEED: f32 = 0.15;
+const JUMPFORCE: f32 = 0.5;
 const SENSITIVITY: f64 = 0.1;
 const CENTER: LogicalPosition<u32> = LogicalPosition{x: WIDTH/2 as u32, y: HEIGHT/2 as u32};
-const GRAVITY: f32 = 0.1;
+const GRAVITY: f32 = 0.3;
 
 
 #[pollster::main]
 async fn main() -> Result<()> {
     
-    let flight_mode = true;
+    let flight_mode = false;
 
-    let mut current_view = Camera::new(Vec3::new(0.0, 2.0, 0.0),0.0,90.0);
+    let mut current_view = Camera::new(Vec3::new(0.0, 32.0, 0.0),0.0,90.0);
 
     let mut pressed_key = HashSet::new();
 
     //let update_interval = Duration::from_millis(100);
     let mut last_update = Instant::now();
     let mut last_frame = Instant::now();
+    let mut last_jump = Instant::now();
 
     let mut previous_cursor_position:Option<LogicalPosition<f64>> = None;
 
@@ -51,13 +53,6 @@ async fn main() -> Result<()> {
     let (device, queue, surface) = connect_to_gpu(&window).await?;
     let mut renderer = render::Rasterizer::new(device, queue, WIDTH, HEIGHT, current_view);
     let (display_buffers, height_map) = generate_and_write_terrain(&renderer);
-
-    for vecs in height_map.clone(){
-        for z in vecs {
-            print!("{}, ",z);
-        }
-        println!("");
-    }
 
 
 
@@ -74,7 +69,7 @@ async fn main() -> Result<()> {
                 let now = Instant::now();
 
                 if now - last_update >= UPDATE_INTERVAL {
-                    update_position(&mut renderer, &mut current_view, &pressed_key, &height_map,flight_mode);
+                    update_position(&mut renderer, &mut current_view, &pressed_key, &height_map,flight_mode, &mut last_jump);
                     
                     last_update = now;
                     
@@ -195,7 +190,7 @@ async fn connect_to_gpu(window: &Window) -> Result<(wgpu::Device, wgpu::Queue, w
     Ok((device, queue, surface))
 }
 
-pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera, pressed_keys: &HashSet<PhysicalKey>, height_map: &Vec<Vec<u16>>, flight_mode: bool) {
+pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera, pressed_keys: &HashSet<PhysicalKey>, height_map: &Vec<Vec<u16>>, flight_mode: bool, last_jump: &mut Instant) {
    
     //code for making cam spin, used early in dev...
     // {let angle = std::f32::consts::PI / 64.0; // 45 degrees 
@@ -239,6 +234,8 @@ pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera, pre
         //current_view.position = current_view.position + (adjusted_movespeed * (current_view.direction.cross(Vec3::Y)) * Vec3::new(1.0,0.0,1.0));
     }
 
+
+
     if flight_mode {
         if pressed_keys.contains(&PhysicalKey::Code(KeyCode::Space)) {
             current_view.position = current_view.position + (MOVESPEED * (Vec3::new(0.0,1.0,0.0)));
@@ -248,10 +245,19 @@ pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera, pre
         }
     }
     
-    if current_view.position.y as u16 - 2 > height_map[current_view.position.x as usize][current_view.position.z as usize] + 1{
+    
+
+    if current_view.position.y as u16 - 1 > height_map[current_view.position.x as usize][current_view.position.z as usize] + 1{
         current_view.position = current_view.position + (GRAVITY * (Vec3::new(0.0,-1.0,0.0)));
         //current_view.position.y = current_view.position.y.ceil();
-        current_view.position.y = current_view.position.y.clamp((height_map[current_view.position.x as usize][current_view.position.z as usize] + 3) as f32, 999.0);
+        current_view.position.y = current_view.position.y.clamp((height_map[current_view.position.x as usize][current_view.position.z as usize] + 2) as f32, 999.0);
+    }
+
+    if pressed_keys.contains(&PhysicalKey::Code(KeyCode::Space)) && 
+    current_view.position.y as u16 - 1 == height_map[current_view.position.x as usize][current_view.position.z as usize] + 1 &&
+    Instant::now() - *last_jump >= JUMP_INTERVAL{
+        current_view.position = current_view.position + (JUMPFORCE * (Vec3::new(0.0,1.0,0.0)));
+        *last_jump = Instant::now();
     }
 
     renderer.camera.view = current_view.view_matrix();

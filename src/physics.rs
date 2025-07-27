@@ -20,7 +20,7 @@ pub fn move_player(positon: Vec3, direction:Vec3, velocity: f32, height_map: &Ve
     let new_pos_voxel = new_pos.floor();    
 
     if old_pos_voxel != new_pos_voxel{
-        if height_map[new_pos_voxel.x as usize][new_pos_voxel.z as usize] + 1 > (new_pos_voxel.y as u16 - 2)  {
+        if height_map[new_pos_voxel.x as usize][new_pos_voxel.z as usize] + 1 > (new_pos_voxel.y as u16 - 1)  {
             if new_pos_voxel.x != old_pos_voxel.x {
                 new_pos.x = positon.x;
             }
@@ -32,7 +32,7 @@ pub fn move_player(positon: Vec3, direction:Vec3, velocity: f32, height_map: &Ve
 
     
 
-    eprintln!("{}",new_pos);
+    //eprintln!("{}",new_pos);
     new_pos
 }
 
