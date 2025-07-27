@@ -67,8 +67,8 @@ const MAPLENGTH: usize = 675;
 const PERLINSCALE: f64 = 0.01; //controls the smoothness 
 const MAPMAXHEIGHT: f64 = 50.0;
 
-const WIDTH:u32 = 1920;
-const HEIGHT:u32 = 1080;
+const WIDTH:u32 = 960;
+const HEIGHT:u32 = 1014;
 
 const ASPECTRATIO: f32 = WIDTH as f32 / HEIGHT as f32;
 
@@ -188,7 +188,7 @@ const CROSSHAIR_INDICDES: [u16; 12] = [
     6, 7, 4,
 ];
 
-pub fn generate_and_write_terrain(renderer: &Rasterizer) -> BufferStorage{
+pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<Vec<u16>>){
 
         // let limits = renderer.device.limits();
         // println!("Max buffer size: {}", limits.max_buffer_size);
@@ -204,10 +204,10 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> BufferStorage{
 
         let mut height_map: Vec<Vec<u16>> = vec![vec![0;MAPWIDTH];MAPLENGTH];
 
-        for z in 0..MAPLENGTH {
-            for x in 0..MAPWIDTH {
+        for x in 0..MAPLENGTH {
+            for z in 0..MAPWIDTH {
                 let height = ((perlin.get([x as f64 * PERLINSCALE, z as f64 * PERLINSCALE]) + 1.0) * 0.5) * MAPMAXHEIGHT;
-                height_map[z][x] = height as u16;
+                height_map[x][z] = height as u16;
             }
         }
 
@@ -275,18 +275,24 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> BufferStorage{
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        BufferStorage {
-            voxel_vertex_buffer: voxel_vertex_buffer,
-            voxel_index_buffer: voxel_index_buffer,
-            voxel_index_length: voxel_index_input.len(),
+        
 
-            wireframe_vertex_buffer: wireframe_vertex_buffer,
-            wireframe_index_buffer: wireframe_index_buffer,
-            wireframe_index_length: wireframe_index_input.len(),
 
-            crosshair_vertex_buffer: crosshair_vertex_buffer,
-            crosshair_index_buffer: crosshair_index_buffer,
-        }
+        (
+            BufferStorage {
+                voxel_vertex_buffer: voxel_vertex_buffer,
+                voxel_index_buffer: voxel_index_buffer,
+                voxel_index_length: voxel_index_input.len(),
+
+                wireframe_vertex_buffer: wireframe_vertex_buffer,
+                wireframe_index_buffer: wireframe_index_buffer,
+                wireframe_index_length: wireframe_index_input.len(),
+
+                crosshair_vertex_buffer: crosshair_vertex_buffer,
+                crosshair_index_buffer: crosshair_index_buffer,
+            },
+            height_map
+        )
 
     }
 

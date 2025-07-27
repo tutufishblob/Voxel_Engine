@@ -1,6 +1,6 @@
 use {
-    crate::{camera::Camera, render::{generate_and_write_terrain, Rasterizer}}, anyhow::{Context, Result}, glam::{Mat4,Vec3}, noise::{NoiseFn, Perlin}, std::{collections::HashSet,
-        time::{Duration,Instant}}, wgpu::TextureView, winit::{
+    crate::{camera::Camera, physics::move_player, render::{generate_and_write_terrain, Rasterizer}}, anyhow::{Context, Result}, glam::{Mat4,Vec3}, noise::{NoiseFn, Perlin}, std::{collections::HashSet,
+        time::{Duration,Instant}, vec}, wgpu::TextureView, winit::{
         dpi::{LogicalPosition, PhysicalPosition, Position},
         event::{self, DeviceEvent, ElementState, Event, KeyEvent, WindowEvent},
         event_loop::{ControlFlow, EventLoop},
@@ -11,9 +11,11 @@ use {
 
 mod render;
 mod camera;
+mod types;
+mod physics;
 
-const WIDTH: u32 = 1920;
-const HEIGHT: u32 = 1080;
+const WIDTH: u32 = 960;
+const HEIGHT: u32 = 1014;
 
 
 const UPDATE_INTERVAL: Duration = Duration::from_nanos(8_333_333);
@@ -21,13 +23,13 @@ const FRAME_INTERVAL: Duration = Duration::from_micros(6944);
 const MOVESPEED: f32 = 0.15;
 const SENSITIVITY: f64 = 0.1;
 const CENTER: LogicalPosition<u32> = LogicalPosition{x: WIDTH/2 as u32, y: HEIGHT/2 as u32};
-const GRAVITY: f32 = -9.81;
+const GRAVITY: f32 = 0.1;
 
 
 #[pollster::main]
 async fn main() -> Result<()> {
     
-
+    let flight_mode = true;
 
     let mut current_view = Camera::new(Vec3::new(0.0, 2.0, 0.0),0.0,90.0);
 
@@ -48,7 +50,16 @@ async fn main() -> Result<()> {
         .build(&event_loop)?;
     let (device, queue, surface) = connect_to_gpu(&window).await?;
     let mut renderer = render::Rasterizer::new(device, queue, WIDTH, HEIGHT, current_view);
-    let display_buffers = generate_and_write_terrain(&renderer);
+    let (display_buffers, height_map) = generate_and_write_terrain(&renderer);
+
+    for vecs in height_map.clone(){
+        for z in vecs {
+            print!("{}, ",z);
+        }
+        println!("");
+    }
+
+
 
 
     _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
@@ -63,7 +74,7 @@ async fn main() -> Result<()> {
                 let now = Instant::now();
 
                 if now - last_update >= UPDATE_INTERVAL {
-                    update_position(&mut renderer, &mut current_view, &pressed_key);
+                    update_position(&mut renderer, &mut current_view, &pressed_key, &height_map,flight_mode);
                     
                     last_update = now;
                     
@@ -184,7 +195,7 @@ async fn connect_to_gpu(window: &Window) -> Result<(wgpu::Device, wgpu::Queue, w
     Ok((device, queue, surface))
 }
 
-pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera, pressed_keys: &HashSet<PhysicalKey>) {
+pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera, pressed_keys: &HashSet<PhysicalKey>, height_map: &Vec<Vec<u16>>, flight_mode: bool) {
    
     //code for making cam spin, used early in dev...
     // {let angle = std::f32::consts::PI / 64.0; // 45 degrees 
@@ -197,26 +208,50 @@ pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera, pre
     }
 
     if pressed_keys.contains(&PhysicalKey::Code(KeyCode::KeyW)) {
-        current_view.position = current_view.position + (adjusted_movespeed * (current_view.direction * Vec3::new(1.0,0.0,1.0)));
+
+        let forward_direction = current_view.direction * Vec3::new(1.0,0.0,1.0);
+        current_view.position = move_player(current_view.position, forward_direction, adjusted_movespeed, height_map);
+
+        //current_view.position = current_view.position + (adjusted_movespeed * (current_view.direction * Vec3::new(1.0,0.0,1.0)));
     }
     if pressed_keys.contains(&PhysicalKey::Code(KeyCode::KeyS)) {
-        current_view.position =  current_view.position + (adjusted_movespeed * current_view.direction * Vec3::new(-1.0,0.0,-1.0));
+
+        let backward_direction = current_view.direction * Vec3::new(-1.0,0.0,-1.0);
+        current_view.position = move_player(current_view.position, backward_direction, adjusted_movespeed, height_map);
+
+        //current_view.position =  current_view.position + (adjusted_movespeed * current_view.direction * Vec3::new(-1.0,0.0,-1.0));
     }
     if pressed_keys.contains(&PhysicalKey::Code(KeyCode::KeyA)) {
-        current_view.position = current_view.position + (adjusted_movespeed * (current_view.direction.cross(Vec3::Y)) * Vec3::new(-1.0,0.0,-1.0));
+
+        let left_direction = (current_view.direction.cross(Vec3::Y)) * Vec3::new(-1.0,0.0,-1.0);
+        current_view.position = move_player(current_view.position, left_direction, adjusted_movespeed, height_map);
+
+        //current_view.position = current_view.position + (adjusted_movespeed * (current_view.direction.cross(Vec3::Y)) * Vec3::new(-1.0,0.0,-1.0));
         
         
     }
     if pressed_keys.contains(&PhysicalKey::Code(KeyCode::KeyD)) {
-        current_view.position = current_view.position + (adjusted_movespeed * (current_view.direction.cross(Vec3::Y)) * Vec3::new(1.0,0.0,1.0));
-    }
 
 
-    if pressed_keys.contains(&PhysicalKey::Code(KeyCode::Space)) {
-        current_view.position = current_view.position + (MOVESPEED * (Vec3::new(0.0,1.0,0.0)));
+        let right_direction = current_view.direction.cross(Vec3::Y) * Vec3::new(1.0,0.0,1.0);
+        current_view.position = move_player(current_view.position, right_direction, adjusted_movespeed, height_map);
+
+        //current_view.position = current_view.position + (adjusted_movespeed * (current_view.direction.cross(Vec3::Y)) * Vec3::new(1.0,0.0,1.0));
     }
-    if pressed_keys.contains(&PhysicalKey::Code(KeyCode::ControlLeft)) {
-        current_view.position = current_view.position + (MOVESPEED * (Vec3::new(0.0,-1.0,0.0)));
+
+    if flight_mode {
+        if pressed_keys.contains(&PhysicalKey::Code(KeyCode::Space)) {
+            current_view.position = current_view.position + (MOVESPEED * (Vec3::new(0.0,1.0,0.0)));
+        }
+        if pressed_keys.contains(&PhysicalKey::Code(KeyCode::ControlLeft)) {
+            current_view.position = current_view.position + (MOVESPEED * (Vec3::new(0.0,-1.0,0.0)));
+        }
+    }
+    
+    if current_view.position.y as u16 - 2 > height_map[current_view.position.x as usize][current_view.position.z as usize] + 1{
+        current_view.position = current_view.position + (GRAVITY * (Vec3::new(0.0,-1.0,0.0)));
+        //current_view.position.y = current_view.position.y.ceil();
+        current_view.position.y = current_view.position.y.clamp((height_map[current_view.position.x as usize][current_view.position.z as usize] + 3) as f32, 999.0);
     }
 
     renderer.camera.view = current_view.view_matrix();
