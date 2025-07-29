@@ -19,6 +19,9 @@ const HEIGHT: u32 = 1014;
 const JUMP_INTERVAL: Duration = Duration::from_millis(250);
 const UPDATE_INTERVAL: Duration = Duration::from_nanos(8_333_333);
 const FRAME_INTERVAL: Duration = Duration::from_micros(6944);
+const FLIGHT_TOGGLE: Duration = Duration::from_millis(250);
+
+
 const MOVESPEED: f32 = 0.15;
 const JUMPFORCE: f32 = 0.4;
 const SENSITIVITY: f64 = 0.1;
@@ -29,7 +32,7 @@ const GRAVITY: f32 = 0.03;
 #[pollster::main]
 async fn main() -> Result<()> {
     
-    let flight_mode = false;
+    let mut flight_mode = false;
 
     let mut current_view = Camera::new(Vec3::new(0.0, 32.0, 0.0), 0.0, 90.0);
 
@@ -39,6 +42,8 @@ async fn main() -> Result<()> {
     let mut last_update = Instant::now();
     let mut last_frame = Instant::now();
     let mut last_jump = Instant::now();
+    let mut last_space_release = Instant::now();
+
 
     let mut previous_cursor_position:Option<LogicalPosition<f64>> = None;
 
@@ -104,6 +109,15 @@ async fn main() -> Result<()> {
                                 pressed_key.insert(event.physical_key);
                             },
                             ElementState::Released => {
+
+                                if &event.physical_key == &PhysicalKey::Code(KeyCode::Space) {
+                                    if Instant::now() - last_space_release < FLIGHT_TOGGLE {
+                                        flight_mode = !flight_mode;
+                                    }
+                                    last_space_release = Instant::now();
+                                    eprintln!("{}",flight_mode);
+                                }
+
                                 pressed_key.remove(&event.physical_key);
                             }
                         }
@@ -209,6 +223,7 @@ pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pre
     }
 
     current_view.horizontal_velocity = Vec2::new(0.0, 0.0);
+    
 
     if pressed_keys.contains(&PhysicalKey::Code(KeyCode::KeyW)) {
 
@@ -257,11 +272,12 @@ pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pre
 
 
     if flight_mode {
+        current_view.vertical_velocity = 0.0;
         if pressed_keys.contains(&PhysicalKey::Code(KeyCode::Space)) {
-            current_view.position = current_view.position + (MOVESPEED * (Vec3::new(0.0,1.0,0.0)));
+            current_view.vertical_velocity += JUMPFORCE;
         }
         if pressed_keys.contains(&PhysicalKey::Code(KeyCode::ControlLeft)) {
-            current_view.position = current_view.position + (MOVESPEED * (Vec3::new(0.0,-1.0,0.0)));
+            current_view.vertical_velocity -= JUMPFORCE;
         }
     }
     
