@@ -11,3 +11,4 @@ winit = "0.29.1"
 wgpu = "0.19.1"
 glam = {version = "0.30", features = ["bytemuck"]}
 noise = "0.8"
+image = "0.25"

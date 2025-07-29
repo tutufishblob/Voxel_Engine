@@ -1,10 +1,12 @@
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3,Vec2};
 #[derive(Copy,Clone)]
 pub struct Camera{ 
     pub position: Vec3,
     pub yaw: f64,
     pub pitch: f64,
     pub direction: Vec3,
+    pub horizontal_velocity: Vec2,
+    pub vertical_velocity: f32,
 }
 
 
@@ -39,13 +41,16 @@ impl Camera {
             yaw.to_radians().sin() as f32 * pitch.to_radians().cos()as f32,
         );
 
-        
+        let horizontal_velocity = Vec2::new(0.0, 0.0);
+        let vertical_velocity = 0.0;
 
         Self{
             position,
             yaw,
             pitch,
-            direction: dir.normalize()
+            direction: dir.normalize(),
+            horizontal_velocity:horizontal_velocity,
+            vertical_velocity: vertical_velocity,
         }
     }
 }
