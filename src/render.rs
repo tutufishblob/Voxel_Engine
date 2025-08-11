@@ -7,11 +7,15 @@ use crate::camera::Camera;
 use noise::{core::perlin, NoiseFn, Perlin};
 
 pub struct BufferStorage {
-    voxel_vertex_buffer: Buffer,
+    cube_vertex_buffer: Buffer,
+
+    voxel_instance_buffer: Buffer,
     voxel_index_buffer: Buffer,
     voxel_index_length: usize,
 
     wireframe_vertex_buffer: Buffer,
+
+    wireframe_instance_buffer: Buffer,
     wireframe_index_buffer: Buffer,
     wireframe_index_length: usize,
 
@@ -55,69 +59,107 @@ pub struct MvpMakeup {//change architecture to seperate the matrix set vectors f
     pub view: Mat4,
     pub projection :Mat4,
 }
+// #[repr(C)]
+// #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+// struct Vertex { 
+//     position: Vec3,
+//     color: Vec3
+// }
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex { 
-    position: Vec3,
-    color: Vec3
+struct Instance {
+    position: Vec3
 }
 
-const MAPWIDTH: usize = 675;
-const MAPLENGTH: usize = 675;
+const MAPWIDTH: usize = 2000;
+const MAPLENGTH: usize = 2000;
 const PERLINSCALE: f64 = 0.01; //controls the smoothness 
 const MAPMAXHEIGHT: f64 = 50.0;
 
-const WIDTH:u32 = 960;
-const HEIGHT:u32 = 1014;
+const WIDTH:u32 = 1920;
+const HEIGHT:u32 = 1080;
 
 const ASPECTRATIO: f32 = WIDTH as f32 / HEIGHT as f32;
 
 
-const CUBE_VERTICES: [Vertex; 24] = [
-    // Front face (red)
-    Vertex { position: Vec3::new(0.0, 0.0, 1.0), color: Vec3::new(1.0, 0.0, 0.0) },
-    Vertex { position: Vec3::new(1.0, 0.0, 1.0), color: Vec3::new(1.0, 0.0, 0.0) },
-    Vertex { position: Vec3::new(1.0, 1.0, 1.0), color: Vec3::new(1.0, 0.0, 0.0) },
-    Vertex { position: Vec3::new(0.0, 1.0, 1.0), color: Vec3::new(1.0, 0.0, 0.0) },
+// const CUBE_VERTICES: [Vertex; 24] = [
+//     // Front face (red)
+//     Vertex { position: Vec3::new(0.0, 0.0, 1.0), color: Vec3::new(1.0, 0.0, 0.0) },
+//     Vertex { position: Vec3::new(1.0, 0.0, 1.0), color: Vec3::new(1.0, 0.0, 0.0) },
+//     Vertex { position: Vec3::new(1.0, 1.0, 1.0), color: Vec3::new(1.0, 0.0, 0.0) },
+//     Vertex { position: Vec3::new(0.0, 1.0, 1.0), color: Vec3::new(1.0, 0.0, 0.0) },
 
-    // Back face (green)
-    Vertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 0.0) },
-    Vertex { position: Vec3::new(1.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 0.0) },
-    Vertex { position: Vec3::new(1.0, 1.0, 0.0), color: Vec3::new(0.0, 1.0, 0.0) },
-    Vertex { position: Vec3::new(0.0, 1.0, 0.0), color: Vec3::new(0.0, 1.0, 0.0) },
+//     // Back face (green)
+//     Vertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 0.0) },
+//     Vertex { position: Vec3::new(1.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 0.0) },
+//     Vertex { position: Vec3::new(1.0, 1.0, 0.0), color: Vec3::new(0.0, 1.0, 0.0) },
+//     Vertex { position: Vec3::new(0.0, 1.0, 0.0), color: Vec3::new(0.0, 1.0, 0.0) },
 
-    // Left face (blue)
-    Vertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec3::new(0.0, 0.0, 1.0) },
-    Vertex { position: Vec3::new(0.0, 0.0, 1.0), color: Vec3::new(0.0, 0.0, 1.0) },
-    Vertex { position: Vec3::new(0.0, 1.0, 1.0), color: Vec3::new(0.0, 0.0, 1.0) },
-    Vertex { position: Vec3::new(0.0, 1.0, 0.0), color: Vec3::new(0.0, 0.0, 1.0) },
+//     // Left face (blue)
+//     Vertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec3::new(0.0, 0.0, 1.0) },
+//     Vertex { position: Vec3::new(0.0, 0.0, 1.0), color: Vec3::new(0.0, 0.0, 1.0) },
+//     Vertex { position: Vec3::new(0.0, 1.0, 1.0), color: Vec3::new(0.0, 0.0, 1.0) },
+//     Vertex { position: Vec3::new(0.0, 1.0, 0.0), color: Vec3::new(0.0, 0.0, 1.0) },
 
-    // Right face (yellow)
-    Vertex { position: Vec3::new(1.0, 0.0, 0.0), color: Vec3::new(1.0, 1.0, 0.0) },
-    Vertex { position: Vec3::new(1.0, 0.0, 1.0), color: Vec3::new(1.0, 1.0, 0.0) },
-    Vertex { position: Vec3::new(1.0, 1.0, 1.0), color: Vec3::new(1.0, 1.0, 0.0) },
-    Vertex { position: Vec3::new(1.0, 1.0, 0.0), color: Vec3::new(1.0, 1.0, 0.0) },
+//     // Right face (yellow)
+//     Vertex { position: Vec3::new(1.0, 0.0, 0.0), color: Vec3::new(1.0, 1.0, 0.0) },
+//     Vertex { position: Vec3::new(1.0, 0.0, 1.0), color: Vec3::new(1.0, 1.0, 0.0) },
+//     Vertex { position: Vec3::new(1.0, 1.0, 1.0), color: Vec3::new(1.0, 1.0, 0.0) },
+//     Vertex { position: Vec3::new(1.0, 1.0, 0.0), color: Vec3::new(1.0, 1.0, 0.0) },
 
-    // Top face (magenta)
-    Vertex { position: Vec3::new(0.0, 1.0, 1.0), color: Vec3::new(1.0, 0.0, 1.0) },
-    Vertex { position: Vec3::new(1.0, 1.0, 1.0), color: Vec3::new(1.0, 0.0, 1.0) },
-    Vertex { position: Vec3::new(1.0, 1.0, 0.0), color: Vec3::new(1.0, 0.0, 1.0) },
-    Vertex { position: Vec3::new(0.0, 1.0, 0.0), color: Vec3::new(1.0, 0.0, 1.0) },
+//     // Top face (magenta)
+//     Vertex { position: Vec3::new(0.0, 1.0, 1.0), color: Vec3::new(1.0, 0.0, 1.0) },
+//     Vertex { position: Vec3::new(1.0, 1.0, 1.0), color: Vec3::new(1.0, 0.0, 1.0) },
+//     Vertex { position: Vec3::new(1.0, 1.0, 0.0), color: Vec3::new(1.0, 0.0, 1.0) },
+//     Vertex { position: Vec3::new(0.0, 1.0, 0.0), color: Vec3::new(1.0, 0.0, 1.0) },
 
-    // Bottom face (cyan)
-    Vertex { position: Vec3::new(0.0, 0.0, 1.0), color: Vec3::new(0.0, 1.0, 1.0) },
-    Vertex { position: Vec3::new(1.0, 0.0, 1.0), color: Vec3::new(0.0, 1.0, 1.0) },
-    Vertex { position: Vec3::new(1.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 1.0) },
-    Vertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 1.0) },
+//     // Bottom face (cyan)
+//     Vertex { position: Vec3::new(0.0, 0.0, 1.0), color: Vec3::new(0.0, 1.0, 1.0) },
+//     Vertex { position: Vec3::new(1.0, 0.0, 1.0), color: Vec3::new(0.0, 1.0, 1.0) },
+//     Vertex { position: Vec3::new(1.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 1.0) },
+//     Vertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 1.0) },
+// ];
+
+pub const CUBE_VERTICES: [Vec3; 24] = [
+    // Front face (z = 1.0)
+    Vec3::new(0.0, 0.0, 1.0), // 0
+    Vec3::new(1.0, 0.0, 1.0), // 1
+    Vec3::new(1.0, 1.0, 1.0), // 2
+    Vec3::new(0.0, 1.0, 1.0), // 3
+
+    Vec3::new(1.0, 0.0, 0.0), // 4
+    Vec3::new(0.0, 0.0, 0.0), // 5
+    Vec3::new(0.0, 1.0, 0.0), // 6
+    Vec3::new(1.0, 1.0, 0.0), // 7
+
+    Vec3::new(0.0, 0.0, 0.0), // 8
+    Vec3::new(0.0, 0.0, 1.0), // 9
+    Vec3::new(0.0, 1.0, 1.0), // 10
+    Vec3::new(0.0, 1.0, 0.0), // 11
+
+    Vec3::new(1.0, 0.0, 1.0), // 12
+    Vec3::new(1.0, 0.0, 0.0), // 13
+    Vec3::new(1.0, 1.0, 0.0), // 14
+    Vec3::new(1.0, 1.0, 1.0), // 15
+
+    Vec3::new(0.0, 1.0, 1.0), // 16
+    Vec3::new(1.0, 1.0, 1.0), // 17
+    Vec3::new(1.0, 1.0, 0.0), // 18
+    Vec3::new(0.0, 1.0, 0.0), // 19
+
+    Vec3::new(0.0, 0.0, 0.0), // 20
+    Vec3::new(1.0, 0.0, 0.0), // 21
+    Vec3::new(1.0, 0.0, 1.0), // 22
+    Vec3::new(0.0, 0.0, 1.0), // 23
 ];
 
 const CUBE_INDICES: [u32; 36] = [
-    0, 1, 2, 0, 2, 3,       // front
-    6, 5, 4, 7, 6, 4,      // back
-    8, 9, 10, 8, 10, 11,    // left
-    14, 13, 12, 15, 14, 12,// right
-    16, 17, 18, 16, 18, 19, // top
-    22, 21, 20, 23, 22, 20, // bottom
+    0, 1, 2, 0, 2, 3,        // front (ok)
+    4, 5, 6, 4, 6, 7,        // back (flipped winding)
+    8, 9, 10, 8, 10, 11,     // left (check winding)
+    12, 13, 14, 12, 14, 15,  // right (check winding)
+    16, 17, 18, 16, 18, 19,  // top (check winding)
+    20, 21, 22, 20, 22, 23,  // bottom (check winding)
 ];
 
 const WIREFRAME_CORNERS: [Vec3; 8] = [
@@ -196,7 +238,7 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
         let perlin = Perlin::new(0);
 
 
-        let mut voxel_vertex_input: Vec<Vertex> = vec![];
+        let mut voxel_vertex_input: Vec<Instance> = vec![];
         let mut wireframe_vertex_input: Vec<Vec3> = vec![];
 
         let mut voxel_index_input: Vec<u32> = vec![];
@@ -214,43 +256,46 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
 
         for (i,rows) in height_map.iter().enumerate(){
             for (j, height) in rows.iter().enumerate(){
-                for vertices in CUBE_VERTICES{
-                    let temp_vertex = Vertex{
-                        position: vertices.position + Vec3::new(i as f32, *height as f32, j as f32),
-                        color: vertices.color,
-                    };
-                    voxel_vertex_input.push(temp_vertex);
-                }
-                for indices in CUBE_INDICES{
-                    voxel_index_input.push(indices as u32 + (24 * ((i * height_map.len()) + j) as u32));
-                }
-
-                for vertices in WIREFRAME_CORNERS{
                 
-                    wireframe_vertex_input.push(vertices+ Vec3::new(i as f32, *height as f32, j as f32));
-                }
-                for indices in WIREFRAME_INDICES{
-                    wireframe_index_input.push(indices as u32 + (8 * ((i * height_map.len()) + j) as u32));
-                }
+                let temp_vertex = Instance{
+                    position: Vec3::new(i as f32, *height as f32, j as f32),
+                };
+                voxel_vertex_input.push(temp_vertex);
+
+                wireframe_vertex_input.push(Vec3::new(i as f32, *height as f32, j as f32));
+                
+                
             }
         }
 
         
 
-        let voxel_vertex_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let cube_vertex_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Cube Vertex Buffer"),
+            contents: bytemuck::cast_slice(&CUBE_VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let voxel_instance_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Cube Position Vertex Buffer"),
             contents: bytemuck::cast_slice(&voxel_vertex_input),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let voxel_index_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(&voxel_index_input),
+            contents: bytemuck::cast_slice(&CUBE_INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
 
 
         let wireframe_vertex_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
+            label: Some("Wireframe Vertex Buffer"),
+            contents: bytemuck::cast_slice(&WIREFRAME_CORNERS),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        let wireframe_instance_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor{
             label: Some("Wireframe Vertex Buffer"),
             contents: bytemuck::cast_slice(&wireframe_vertex_input),
             usage: wgpu::BufferUsages::VERTEX,
@@ -258,7 +303,7 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
 
         let wireframe_index_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Wireframe Index Buffer"),
-            contents: bytemuck::cast_slice(&wireframe_index_input),
+            contents: bytemuck::cast_slice(&WIREFRAME_INDICES),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -280,11 +325,15 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
 
         (
             BufferStorage {
-                voxel_vertex_buffer: voxel_vertex_buffer,
+
+                cube_vertex_buffer:cube_vertex_buffer,
+
+                voxel_instance_buffer: voxel_instance_buffer,
                 voxel_index_buffer: voxel_index_buffer,
-                voxel_index_length: voxel_index_input.len(),
+                voxel_index_length: voxel_vertex_input.len(),
 
                 wireframe_vertex_buffer: wireframe_vertex_buffer,
+                wireframe_instance_buffer: wireframe_instance_buffer,
                 wireframe_index_buffer: wireframe_index_buffer,
                 wireframe_index_length: wireframe_index_input.len(),
 
@@ -355,10 +404,11 @@ impl Rasterizer {
         render_pass.set_pipeline(&self.display_pipeline);
         render_pass.set_bind_group(0, &self.display_bind_group, &[]);
 
-        render_pass.set_vertex_buffer(0, display_buffers.voxel_vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(0, display_buffers.cube_vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, display_buffers.voxel_instance_buffer.slice(..));
         render_pass.set_index_buffer(display_buffers.voxel_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         
-        render_pass.draw_indexed(0..display_buffers.voxel_index_length as u32, 0,0..1);
+        render_pass.draw_indexed(0..36 as u32, 0,0..display_buffers.voxel_index_length as u32);
 
         match (self.wireframe_pipeline.as_ref(), self.wireframe_bind_group.as_ref()) {
             
@@ -368,8 +418,9 @@ impl Rasterizer {
                 render_pass.set_bind_group(0, wireframe_bind_group, &[]);
 
                 render_pass.set_vertex_buffer(0, display_buffers.wireframe_vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(1, display_buffers.wireframe_instance_buffer.slice(..));
                 render_pass.set_index_buffer(display_buffers.wireframe_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..display_buffers.wireframe_index_length as u32, 0,0..1);
+                render_pass.draw_indexed(0..24 as u32, 0,0..display_buffers.voxel_index_length as u32);
             }
             _ => {
 
@@ -413,7 +464,7 @@ impl Rasterizer {
                 fov_y,
                 aspect_ratio,
                 0.1,
-                500.0
+                5000.0
             )
         };
 
@@ -511,26 +562,33 @@ fn create_display_pipeline(
         ],
     });
 
-    let vertex_buffer_layout = wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+    
+
+    let cube_vertex_buffer_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vec3>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
                     offset: 0,
                     shader_location: 0,
                     format: wgpu::VertexFormat::Float32x3,
-                },
-
-                wgpu::VertexAttribute {
-                    offset: 12,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x3,
-            }
-            
+                },            
             ],
             
         };
 
+    let instance_vertex_buffer_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Instance>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },            
+            ],
+            
+        };
 
     let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("display"),
@@ -549,7 +607,7 @@ fn create_display_pipeline(
         vertex: wgpu::VertexState {
             module: &shader_module,
             entry_point: "display_vs",
-            buffers: &[vertex_buffer_layout],
+            buffers: &[cube_vertex_buffer_layout, instance_vertex_buffer_layout],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader_module,
@@ -609,6 +667,19 @@ fn create_wireframe_pipeline(
             ],
             
         };
+    
+    let wireframe_instance_buffer_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vec3>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                }            
+            ],
+            
+        };
 
 
     let wireframe_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -626,7 +697,7 @@ fn create_wireframe_pipeline(
         vertex: wgpu::VertexState {
             module: &shader_module,
             entry_point: "wireframe_vs",
-            buffers: &[wireframe_vertex_buffer_layout],
+            buffers: &[wireframe_vertex_buffer_layout,wireframe_instance_buffer_layout],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader_module,

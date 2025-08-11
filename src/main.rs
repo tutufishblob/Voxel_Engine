@@ -13,8 +13,8 @@ mod camera;
 mod types;
 mod physics;
 
-const WIDTH: u32 = 960;
-const HEIGHT: u32 = 1014;
+const WIDTH: u32 = 1920;
+const HEIGHT: u32 = 1080;
 
 const JUMP_INTERVAL: Duration = Duration::from_millis(250);
 const UPDATE_INTERVAL: Duration = Duration::from_nanos(8_333_333);

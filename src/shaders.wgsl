@@ -5,7 +5,7 @@ struct Uniforms {
 
 struct VertexInput {
   @location(0) position: vec3f,
-  @location(1) color: vec3f,
+  @location(1) instance_pos: vec3f,
   @builtin(vertex_index) vertex_index: u32,
 }
 
@@ -16,6 +16,7 @@ struct VertexOutput {
 
 struct WireframeVertexInput {
   @location(0) position:vec3f,
+  @location(1) instance_pos: vec3f,
 }
 
 struct CrosshairVertexInput {
@@ -63,14 +64,15 @@ var<uniform> uniforms: Uniforms;
 @vertex 
 fn display_vs(in: VertexInput) -> VertexOutput {
   var out: VertexOutput;
-  out.position = uniforms.mvp * vec4f(in.position, 1.0);
-  out.color = in.color;
+  let cube_position = in.position + in.instance_pos;
+  out.position = uniforms.mvp * vec4f(cube_position, 1.0);
+  out.color = vec3f(135.0, 206.0, 235.0);
   return out;
 }
 
 @fragment 
 fn display_fs(@location(0) color: vec3f) -> @location(0) vec4f {
-  return vec4f(color, 1.0);
+  return vec4f(0.529, 0.808, 0.922, 1.0);
 }
 
 
@@ -78,7 +80,8 @@ fn display_fs(@location(0) color: vec3f) -> @location(0) vec4f {
 fn wireframe_vs(in: WireframeVertexInput) -> @builtin(position) vec4f {
   // let scaled_position = in.position * 1.01; //unnecessary
   // return uniforms.mvp * vec4f(scaled_position, 1.0);
-  return uniforms.mvp * vec4f(in.position,1.0);
+  let wireframe_position = in.position + in.instance_pos;
+  return uniforms.mvp * vec4f(wireframe_position,1.0);
 }
 
 @fragment 
