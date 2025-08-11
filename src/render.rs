@@ -4,7 +4,9 @@ use bytemuck::{bytes_of, checked::cast_slice, Pod, Zeroable};
 use glam::{Mat4, Vec2, Vec3};
 use wgpu::{core::device::queue, util::DeviceExt, Buffer};
 use crate::camera::Camera;
+use crate::textures::load_texture;
 use noise::{core::perlin, NoiseFn, Perlin};
+
 
 pub struct BufferStorage {
     cube_vertex_buffer: Buffer,
@@ -43,6 +45,12 @@ pub struct Rasterizer{
 
     crosshair_pipeline: wgpu::RenderPipeline,
 
+    texture: wgpu::Texture,
+    sampler: wgpu::Sampler,
+    texture_bind_group: wgpu::BindGroup,
+
+
+
     // display_buffers: BufferStorage<'a>,
 }
 
@@ -59,12 +67,14 @@ pub struct MvpMakeup {//change architecture to seperate the matrix set vectors f
     pub view: Mat4,
     pub projection :Mat4,
 }
-// #[repr(C)]
-// #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-// struct Vertex { 
-//     position: Vec3,
-//     color: Vec3
-// }
+
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Vertex {
+    pub position: Vec3,
+    pub tex_coords: Vec2,
+}
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Instance {
@@ -120,38 +130,44 @@ const ASPECTRATIO: f32 = WIDTH as f32 / HEIGHT as f32;
 //     Vertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec3::new(0.0, 1.0, 1.0) },
 // ];
 
-pub const CUBE_VERTICES: [Vec3; 24] = [
-    // Front face (z = 1.0)
-    Vec3::new(0.0, 0.0, 1.0), // 0
-    Vec3::new(1.0, 0.0, 1.0), // 1
-    Vec3::new(1.0, 1.0, 1.0), // 2
-    Vec3::new(0.0, 1.0, 1.0), // 3
+const CUBE_VERTICES: &[Vertex] = &[
+    // Front face (face_index = 0)
+    Vertex { position: Vec3::new(0.0, 0.0, 1.0), tex_coords: Vec2::new(0.0 / 6.0, 1.0) }, // bottom-left
+    Vertex { position: Vec3::new(1.0, 0.0, 1.0), tex_coords: Vec2::new(1.0 / 6.0, 1.0) }, // bottom-right
+    Vertex { position: Vec3::new(1.0, 1.0, 1.0), tex_coords: Vec2::new(1.0 / 6.0, 0.0) }, // top-right
+    Vertex { position: Vec3::new(0.0, 1.0, 1.0), tex_coords: Vec2::new(0.0 / 6.0, 0.0) }, // top-left
 
-    Vec3::new(1.0, 0.0, 0.0), // 4
-    Vec3::new(0.0, 0.0, 0.0), // 5
-    Vec3::new(0.0, 1.0, 0.0), // 6
-    Vec3::new(1.0, 1.0, 0.0), // 7
+    // Back face (face_index = 1)
+    Vertex { position: Vec3::new(1.0, 0.0, 0.0), tex_coords: Vec2::new(1.0 / 6.0, 1.0) }, // bottom-left
+    Vertex { position: Vec3::new(0.0, 0.0, 0.0), tex_coords: Vec2::new(2.0 / 6.0, 1.0) }, // bottom-right
+    Vertex { position: Vec3::new(0.0, 1.0, 0.0), tex_coords: Vec2::new(2.0 / 6.0, 0.0) }, // top-right
+    Vertex { position: Vec3::new(1.0, 1.0, 0.0), tex_coords: Vec2::new(1.0 / 6.0, 0.0) }, // top-left
 
-    Vec3::new(0.0, 0.0, 0.0), // 8
-    Vec3::new(0.0, 0.0, 1.0), // 9
-    Vec3::new(0.0, 1.0, 1.0), // 10
-    Vec3::new(0.0, 1.0, 0.0), // 11
+    // Left face (face_index = 2)
+    Vertex { position: Vec3::new(0.0, 0.0, 0.0), tex_coords: Vec2::new(2.0 / 6.0, 1.0) },
+    Vertex { position: Vec3::new(0.0, 0.0, 1.0), tex_coords: Vec2::new(3.0 / 6.0, 1.0) },
+    Vertex { position: Vec3::new(0.0, 1.0, 1.0), tex_coords: Vec2::new(3.0 / 6.0, 0.0) },
+    Vertex { position: Vec3::new(0.0, 1.0, 0.0), tex_coords: Vec2::new(2.0 / 6.0, 0.0) },
 
-    Vec3::new(1.0, 0.0, 1.0), // 12
-    Vec3::new(1.0, 0.0, 0.0), // 13
-    Vec3::new(1.0, 1.0, 0.0), // 14
-    Vec3::new(1.0, 1.0, 1.0), // 15
+    // Right face (face_index = 3)
+    Vertex { position: Vec3::new(1.0, 0.0, 1.0), tex_coords: Vec2::new(3.0 / 6.0, 1.0) },
+    Vertex { position: Vec3::new(1.0, 0.0, 0.0), tex_coords: Vec2::new(4.0 / 6.0, 1.0) },
+    Vertex { position: Vec3::new(1.0, 1.0, 0.0), tex_coords: Vec2::new(4.0 / 6.0, 0.0) },
+    Vertex { position: Vec3::new(1.0, 1.0, 1.0), tex_coords: Vec2::new(3.0 / 6.0, 0.0) },
 
-    Vec3::new(0.0, 1.0, 1.0), // 16
-    Vec3::new(1.0, 1.0, 1.0), // 17
-    Vec3::new(1.0, 1.0, 0.0), // 18
-    Vec3::new(0.0, 1.0, 0.0), // 19
+    // Top face (face_index = 4)
+    Vertex { position: Vec3::new(0.0, 1.0, 1.0), tex_coords: Vec2::new(4.0 / 6.0, 1.0) },
+    Vertex { position: Vec3::new(1.0, 1.0, 1.0), tex_coords: Vec2::new(5.0 / 6.0, 1.0) },
+    Vertex { position: Vec3::new(1.0, 1.0, 0.0), tex_coords: Vec2::new(5.0 / 6.0, 0.0) },
+    Vertex { position: Vec3::new(0.0, 1.0, 0.0), tex_coords: Vec2::new(4.0 / 6.0, 0.0) },
 
-    Vec3::new(0.0, 0.0, 0.0), // 20
-    Vec3::new(1.0, 0.0, 0.0), // 21
-    Vec3::new(1.0, 0.0, 1.0), // 22
-    Vec3::new(0.0, 0.0, 1.0), // 23
+    // Bottom face (face_index = 5)
+    Vertex { position: Vec3::new(0.0, 0.0, 0.0), tex_coords: Vec2::new(5.0 / 6.0, 1.0) },
+    Vertex { position: Vec3::new(1.0, 0.0, 0.0), tex_coords: Vec2::new(6.0 / 6.0, 1.0) },
+    Vertex { position: Vec3::new(1.0, 0.0, 1.0), tex_coords: Vec2::new(6.0 / 6.0, 0.0) },
+    Vertex { position: Vec3::new(0.0, 0.0, 1.0), tex_coords: Vec2::new(5.0 / 6.0, 0.0) },
 ];
+
 
 const CUBE_INDICES: [u32; 36] = [
     0, 1, 2, 0, 2, 3,        // front (ok)
@@ -401,8 +417,14 @@ impl Rasterizer {
             ..Default::default()
         });
 
+
+        
         render_pass.set_pipeline(&self.display_pipeline);
+       
         render_pass.set_bind_group(0, &self.display_bind_group, &[]);
+        render_pass.set_bind_group(1, &self.texture_bind_group, &[]);
+
+        
 
         render_pass.set_vertex_buffer(0, display_buffers.cube_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, display_buffers.voxel_instance_buffer.slice(..));
@@ -432,6 +454,8 @@ impl Rasterizer {
         render_pass.set_vertex_buffer(0, display_buffers.crosshair_vertex_buffer.slice(..));
         render_pass.set_index_buffer(display_buffers.crosshair_index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         
+
+
         render_pass.draw_indexed(0..12 as u32, 0,0..1);
 
         // End the render pass by consuming the object.
@@ -511,6 +535,7 @@ impl Rasterizer {
             }],
         });
 
+        let (texture, sampler, texture_bind_group) = load_texture(&device, &queue,"textures/grass_texture.png");
 
 
         Rasterizer {
@@ -526,6 +551,10 @@ impl Rasterizer {
             wireframe_pipeline: Some(wireframe_pipeline),
 
             crosshair_pipeline,
+
+            texture:texture,
+            sampler:sampler,
+            texture_bind_group:texture_bind_group,
         }
     }
 }
@@ -545,7 +574,7 @@ fn create_display_pipeline(
     shader_module: &wgpu::ShaderModule,
 ) -> (wgpu::RenderPipeline,wgpu::BindGroupLayout) {
 
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor{
+    let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor{
         label:None,
         entries: &[
             wgpu::BindGroupLayoutEntry{
@@ -565,14 +594,19 @@ fn create_display_pipeline(
     
 
     let cube_vertex_buffer_layout = wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vec3>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
                     offset: 0,
                     shader_location: 0,
                     format: wgpu::VertexFormat::Float32x3,
-                },            
+                }, 
+                wgpu::VertexAttribute {
+                    offset: 12,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
+                },              
             ],
             
         };
@@ -583,18 +617,43 @@ fn create_display_pipeline(
             attributes: &[
                 wgpu::VertexAttribute {
                     offset: 0,
-                    shader_location: 1,
+                    shader_location: 2,
                     format: wgpu::VertexFormat::Float32x3,
                 },            
             ],
             
         };
 
+
+    let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Texture Bind Group Layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+
+
+
     let voxel_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("display"),
         layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor{
             label: Some("Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: &[&uniform_bind_group_layout, &texture_bind_group_layout],
             ..Default::default()
         })),
         primitive: wgpu::PrimitiveState {
@@ -629,7 +688,7 @@ fn create_display_pipeline(
         multiview: None,
     });
 
-    (voxel_pipeline,bind_group_layout)
+    (voxel_pipeline,uniform_bind_group_layout)
 }
 
 

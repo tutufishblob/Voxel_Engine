@@ -5,13 +5,15 @@ struct Uniforms {
 
 struct VertexInput {
   @location(0) position: vec3f,
-  @location(1) instance_pos: vec3f,
+  @location(1) tex_coords:vec2f,
+  @location(2) instance_pos: vec3f,
+  
   @builtin(vertex_index) vertex_index: u32,
 }
 
 struct VertexOutput {
   @builtin(position) position:vec4f,
-  @location(0) color:vec3f,
+  @location(0) tex_coords:vec2f,
 }
 
 struct WireframeVertexInput {
@@ -26,6 +28,8 @@ struct CrosshairVertexInput {
 @group(0) @binding(0)
 var<uniform> uniforms: Uniforms;
 
+@group(1) @binding(0) var my_texture: texture_2d<f32>;
+@group(1) @binding(1) var my_sampler: sampler;
 
 // struct Ray {
 //   origin: vec3f,
@@ -66,13 +70,13 @@ fn display_vs(in: VertexInput) -> VertexOutput {
   var out: VertexOutput;
   let cube_position = in.position + in.instance_pos;
   out.position = uniforms.mvp * vec4f(cube_position, 1.0);
-  out.color = vec3f(135.0, 206.0, 235.0);
+  out.tex_coords = in.tex_coords;
   return out;
 }
 
 @fragment 
-fn display_fs(@location(0) color: vec3f) -> @location(0) vec4f {
-  return vec4f(0.529, 0.808, 0.922, 1.0);
+fn display_fs(@location(0) tex_coords: vec2f) -> @location(0) vec4f {
+  return textureSample(my_texture, my_sampler, tex_coords);
 }
 
 

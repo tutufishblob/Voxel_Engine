@@ -12,6 +12,7 @@ mod render;
 mod camera;
 mod types;
 mod physics;
+mod textures;
 
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
