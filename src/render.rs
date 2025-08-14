@@ -3,10 +3,10 @@ use core::f32;
 use bytemuck::{bytes_of, checked::cast_slice, Pod, Zeroable};
 use glam::{Mat4, Vec2, Vec3};
 use wgpu::{core::device::queue, util::DeviceExt, Buffer};
-use crate::camera::Camera;
+use crate::{camera::Camera};
 use crate::textures::load_texture;
-use noise::{core::perlin, NoiseFn, Perlin};
-
+use noise::{core::perlin, NoiseFn, Perlin, Simplex, Worley};
+use crate::terrain::{self, TerrainCreator};
 
 pub struct BufferStorage {
     cube_vertex_buffer: Buffer,
@@ -83,8 +83,10 @@ struct Instance {
 
 const MAPWIDTH: usize = 2000;
 const MAPLENGTH: usize = 2000;
-const PERLINSCALE: f64 = 0.01; //controls the smoothness 
-const MAPMAXHEIGHT: f64 = 50.0;
+const LARGEPERLINSCALE: f64 = 0.03; //controls the smoothness 
+const MEDIUMPERLINSCALE: f64 = 0.008; //controls the smoothness 
+const SMALLPERLINSCALE: f64 = 0.001; //controls the smoothness 
+const MAPMAXHEIGHT: f64 = 20.0;
 
 const WIDTH:u32 = 1920;
 const HEIGHT:u32 = 1080;
@@ -247,12 +249,14 @@ const CROSSHAIR_INDICDES: [u16; 12] = [
 ];
 
 pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<Vec<u16>>){
-
+        let mut terrain_creator = TerrainCreator::new();
         // let limits = renderer.device.limits();
         // println!("Max buffer size: {}", limits.max_buffer_size);
 
         let perlin = Perlin::new(0);
-
+        let moisture = Simplex::new(0);
+        let temperature = Worley::new(0);
+        let volatility = Simplex::new(0);
 
         let mut voxel_vertex_input: Vec<Instance> = vec![];
         let mut wireframe_vertex_input: Vec<Vec3> = vec![];
@@ -262,9 +266,11 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
 
         let mut height_map: Vec<Vec<u16>> = vec![vec![0;MAPWIDTH];MAPLENGTH];
 
+
         for x in 0..MAPLENGTH {
             for z in 0..MAPWIDTH {
-                let height = ((perlin.get([x as f64 * PERLINSCALE, z as f64 * PERLINSCALE]) + 1.0) * 0.5) * MAPMAXHEIGHT;
+                let height = terrain_creator.get_height(x as f64,z as f64);
+
                 height_map[x][z] = height as u16;
             }
         }

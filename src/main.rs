@@ -13,6 +13,7 @@ mod camera;
 mod types;
 mod physics;
 mod textures;
+mod terrain;
 
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
@@ -23,8 +24,10 @@ const FRAME_INTERVAL: Duration = Duration::from_micros(6944);
 const FLIGHT_TOGGLE: Duration = Duration::from_millis(250);
 
 
-const MOVESPEED: f32 = 0.15;
-const JUMPFORCE: f32 = 0.4;
+//const MOVESPEED: f32 = 0.15;
+const MOVESPEED: f32 = 0.40; //for testing
+//const JUMPFORCE: f32 = 0.25;
+const JUMPFORCE: f32 = 0.65; // for testing
 const SENSITIVITY: f64 = 0.1;
 const CENTER: LogicalPosition<u32> = LogicalPosition{x: WIDTH/2 as u32, y: HEIGHT/2 as u32};
 const GRAVITY: f32 = 0.03;
@@ -284,11 +287,7 @@ pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pre
     
     
  
-    if current_view.position.y as u16 - 1 > height_map[current_view.position.x as usize][current_view.position.z as usize] + 1  && !flight_mode{
-        current_view.vertical_velocity -= GRAVITY;
-        //current_view.position.y = current_view.position.y.ceil();
-        //current_view.position.y = current_view.position.y.clamp((height_map[current_view.position.x as usize][current_view.position.z as usize] + 1) as f32, 999.0);
-    }
+    
 
     if pressed_keys.contains(&PhysicalKey::Code(KeyCode::Space)) && 
     current_view.position.y as u16 - 1 == height_map[current_view.position.x as usize][current_view.position.z as usize] + 1 &&
@@ -297,7 +296,12 @@ pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pre
         *last_jump = Instant::now();
     }
 
-    
+    if current_view.position.y as u16 - 1 > height_map[current_view.position.x as usize][current_view.position.z as usize] + 1  && !flight_mode{
+        current_view.vertical_velocity -= GRAVITY;
+        //current_view.position.y = current_view.position.y.ceil();
+        //current_view.position.y = current_view.position.y.clamp((height_map[current_view.position.x as usize][current_view.position.z as usize] + 1) as f32, 999.0);
+    }
+
     if current_view.horizontal_velocity != Vec2::ZERO {
         current_view.horizontal_velocity = current_view.horizontal_velocity.normalize();
         current_view.horizontal_velocity *= adjusted_movespeed;
