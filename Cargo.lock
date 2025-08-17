@@ -2153,6 +2153,7 @@ dependencies = [
  "image",
  "noise",
  "pollster",
+ "rand 0.8.5",
  "wgpu",
  "winit",
 ]

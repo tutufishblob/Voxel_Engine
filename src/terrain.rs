@@ -1,5 +1,6 @@
 use noise::{core::perlin, Fbm, MultiFractal, NoiseFn, Perlin, Seedable, Simplex, Worley};
-
+use rand::Rng;
+use std::{u32};
 use crate::terrain;
 
 enum Biomes {
@@ -35,9 +36,13 @@ pub struct TerrainCreator {
 
 impl TerrainCreator {
     pub fn new() -> Self{
-        let moisture = Perlin::new(0);
-        let temperature = Perlin::new(0);
-        let terrain_func = Fbm::new(1).set_octaves(6).set_persistence(0.6).set_frequency(1.4).set_lacunarity(1.4);
+        
+        let mut rng = rand::thread_rng();
+        let n = rng.gen_range(0..u32::MAX);
+
+        let moisture = Perlin::new(n);
+        let temperature = Perlin::new(n);
+        let terrain_func = Fbm::new(0).set_octaves(6).set_persistence(0.6).set_frequency(1.4).set_lacunarity(1.55);
 
         Self {
             temperature: temperature,
@@ -58,7 +63,7 @@ impl TerrainCreator {
             forest_height: 15.0,
 
             mountain_sensitivity: 0.005,
-            forest_sensitivity: 0.003,
+            forest_sensitivity: 0.0025,
             plains_sensitivity: 0.0005
         }
     }
@@ -113,7 +118,7 @@ impl TerrainCreator {
         }
         else if temp_height <= 400{
             temp_height = (temp_height as f64).powf(0.9) as u16;
-            temp_height += 180;
+            temp_height += 181;
         }
         else {
             //temp_height = (temp_height as f64).powf(0.9) as u16;
@@ -144,31 +149,5 @@ impl TerrainCreator {
         
     }
 }
-// pub fn generate_noise(x:f64, z:f64, base_noise: Perlin, moisture_noise: Simplex, temperature_noise: Worley) -> f64{
 
-    
-
-
-//     let mut amplitude = 1.0;
-//     let mut base_frequency = 0.008;
-//     let mut moist_frequency = 0.001;
-//     let mut temp_frequency = 0.0005;
-//     let mut noise_height = 0.0;
-//     let persistence = 0.5;
-    
-
-//     //let basic_noise = base_noise.get([x * base_frequency, z * base_frequency]) + 1.0;
-//     let moist_noise = moisture_noise.get([x * moist_frequency, z * moist_frequency]) + 1.0;
-//     let temp_noise = temperature_noise.get([x * temp_frequency, z * temp_frequency]) + 1.0;
-
-//     let octaves = (5.0) as i32;
-
-//     for _ in 0..octaves {
-//         noise_height += amplitude * base_noise.get([x * base_frequency, z * base_frequency]) + 1.0;
-//         amplitude *= persistence;
-//         base_frequency *= moist_noise;
-//     }
-//     //eprint!("{}\n",noise_height);
-//     lerp(noise_height,moist_noise, temp_noise)
-// }
 

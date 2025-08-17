@@ -1,7 +1,8 @@
 use glam::Vec3;
 
 const PLAYERSIZE: Vec3 = Vec3 {x: 0.6,y: 1.8,z: 0.6};
-
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct AABB {
     pub min: Vec3,
     pub max: Vec3,

@@ -1,12 +1,10 @@
 use {
-    crate::{camera::Camera, physics::move_player, render::{generate_and_write_terrain, Rasterizer}}, anyhow::{Context, Result}, glam::{Mat4, Vec2, Vec3}, noise::{NoiseFn, Perlin}, std::{collections::HashSet, thread::current, time::{Duration,Instant}, vec}, wgpu::TextureView, winit::{
-        dpi::{LogicalPosition, PhysicalPosition, Position},
-        event::{self, DeviceEvent, ElementState, Event, KeyEvent, WindowEvent},
-        event_loop::{ControlFlow, EventLoop},
-        keyboard::{KeyCode, PhysicalKey},
-        window::{Window, WindowBuilder},
+    crate::{camera::Camera,terrain::TerrainCreator, physics::move_player, render::{generate_and_write_terrain, BufferStorage, Rasterizer}, types::AABB}, anyhow::{Context, Result}, glam::{Mat4, Vec2, Vec3}, noise::{NoiseFn, Perlin}, std::{collections::{HashMap, HashSet}, thread::current, time::{Duration,Instant}, vec}, wgpu::TextureView, winit::{
+        dpi::{LogicalPosition, PhysicalPosition, Position}, event::{self, DeviceEvent, ElementState, Event, KeyEvent, WindowEvent}, event_loop::{ControlFlow, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowBuilder},
+        
         }
 };
+use bytemuck::{bytes_of, checked::cast_slice, Pod, Zeroable};
 
 mod render;
 mod camera;
@@ -32,6 +30,17 @@ const SENSITIVITY: f64 = 0.1;
 const CENTER: LogicalPosition<u32> = LogicalPosition{x: WIDTH/2 as u32, y: HEIGHT/2 as u32};
 const GRAVITY: f32 = 0.03;
 
+const RENDER_DISTANCE: i16 = 1;
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct ChunkMetaData {
+    chunk_offset: [i32;2],
+    instance_offset: u32,
+    instance_count: u32,
+    aabb: AABB,
+    chunk_data: [[Vec3;16];16],
+}
 
 #[pollster::main]
 async fn main() -> Result<()> {
@@ -48,6 +57,7 @@ async fn main() -> Result<()> {
     let mut last_jump = Instant::now();
     let mut last_space_release = Instant::now();
 
+    let mut instance_offset = 0;
 
     let mut previous_cursor_position:Option<LogicalPosition<f64>> = None;
 
@@ -59,11 +69,16 @@ async fn main() -> Result<()> {
         .with_title("Voxel Window".to_string())
         .build(&event_loop)?;
     let (device, queue, surface) = connect_to_gpu(&window).await?;
+
     let mut renderer = render::Rasterizer::new(device, queue, WIDTH, HEIGHT, current_view);
+
     let (display_buffers, height_map) = generate_and_write_terrain(&renderer);
 
+    let mut chunk_pool: HashMap<(i32,i32),ChunkMetaData> = HashMap::new();
 
+    let mut terrain_creator = TerrainCreator::new();
 
+    update_chunks(&mut current_view, &mut chunk_pool, Vec2::ZERO, &mut terrain_creator,&mut renderer,&display_buffers,&mut instance_offset);
 
     _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
     window.set_cursor_visible(false);
@@ -78,7 +93,7 @@ async fn main() -> Result<()> {
 
                 if now - last_update >= UPDATE_INTERVAL {
                     //Println!("pre move{}",current_view.position);
-                    update_velocity(&mut renderer, &mut current_view, &pressed_key, &height_map,flight_mode, &mut last_jump);
+                    update_velocity(&mut renderer, &mut current_view, &pressed_key, &height_map,flight_mode, &mut last_jump,&mut chunk_pool,&mut terrain_creator,&display_buffers,&mut instance_offset);
                     
                     last_update = now;
 
@@ -87,6 +102,8 @@ async fn main() -> Result<()> {
                     renderer.camera.view = current_view.view_matrix();
 
                     renderer.uniforms.mvp = renderer.camera.projection * renderer.camera.view * renderer.camera.model;
+
+
                     
                 }     
                 if now - last_frame >= FRAME_INTERVAL{
@@ -148,7 +165,7 @@ async fn main() -> Result<()> {
 
                     
 
-                    renderer.render_frame(&render_target, &display_buffers);
+                    renderer.render_frame(&render_target, &display_buffers, &mut chunk_pool);
 
                     frame.present();
                     
@@ -214,7 +231,7 @@ async fn connect_to_gpu(window: &Window) -> Result<(wgpu::Device, wgpu::Queue, w
     Ok((device, queue, surface))
 }
 
-pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pressed_keys: &HashSet<PhysicalKey>, height_map: &Vec<Vec<u16>>, flight_mode: bool, last_jump: &mut Instant) {
+pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pressed_keys: &HashSet<PhysicalKey>, height_map: &Vec<Vec<u16>>, flight_mode: bool, last_jump: &mut Instant, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>,terrain_creator:&mut TerrainCreator,display_buffers: &BufferStorage, instance_offset:&mut u32) {
    
     //code for making cam spin, used early in dev...
     // {let angle = std::f32::consts::PI / 64.0; // 45 degrees 
@@ -311,7 +328,7 @@ pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pre
 
     //Println!("before update_pos{}",current_view.position);
 
-    update_position(renderer, current_view, height_map);
+    update_position(renderer, current_view, height_map, chunk_pool,terrain_creator,&display_buffers,instance_offset);
 
 
     //Println!("after update_pos{}",current_view.position);
@@ -356,12 +373,17 @@ pub fn update_aim(renderer: &mut Rasterizer, current_view: &mut Camera, delta: (
 
 }
 
-pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera,  height_map: &Vec<Vec<u16>>) {
+pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera,  height_map: &Vec<Vec<u16>>, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>,terrain_creator:&mut TerrainCreator,display_buffers: &BufferStorage,instance_offset:&mut u32) {
     
 
     //Println!("before move_player{}",current_view.position);
+    let temp_chunk = current_view.current_chunk;
+    move_player(current_view, current_view.horizontal_velocity, current_view.vertical_velocity, height_map);
+    current_view.recompute_chunk();
 
-    current_view.position = move_player(current_view.position, current_view.horizontal_velocity, current_view.vertical_velocity, height_map);
+    if current_view.current_chunk != temp_chunk{
+        update_chunks(current_view, chunk_pool, temp_chunk, terrain_creator,renderer,&display_buffers,instance_offset);
+    }
 
     //Println!("after move_player{}",current_view.position);
 
@@ -373,4 +395,51 @@ pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera,  he
 
     //Println!("after after clamp{}",current_view.position);
 
+}
+
+pub fn update_chunks(current_view: &mut Camera, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>, previous_chunk: Vec2, terrain_creator:&mut TerrainCreator, renderer: &mut Rasterizer, display_buffers: &BufferStorage, instance_offset:&mut u32){
+    let current_chunk = current_view.current_chunk;
+    eprintln!("{}",current_chunk);
+    let chunk_difference = current_chunk - previous_chunk;
+    
+    for i in -RENDER_DISTANCE..RENDER_DISTANCE{
+        for j in -RENDER_DISTANCE..RENDER_DISTANCE {
+            let adjusted_chunk = (current_chunk.x as i32 + i as i32, current_chunk.y as i32 + j as i32);
+            if !chunk_pool.contains_key(&adjusted_chunk){
+                generate_chunk(adjusted_chunk, terrain_creator, chunk_pool, instance_offset);
+                renderer.queue.write_buffer(&display_buffers.voxel_instance_buffer, (*instance_offset * std::mem::size_of::<Vec3>() as u32) as u64, bytes_of(&chunk_pool[&adjusted_chunk].chunk_data));
+                *instance_offset+=256;
+            }
+        }   
+    }
+
+
+}
+
+fn generate_chunk(chunk_offset: (i32,i32), terrain_creator:&mut TerrainCreator,chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>,instance_offset:&mut u32){
+    let mut temp_chunk:[[Vec3;16];16] = [[Vec3::ZERO;16];16];
+    for i in 0..16 {
+        for j in 0..16 {
+            temp_chunk[i][j] = Vec3::new(((chunk_offset.0 * 16) + i as i32) as f32,terrain_creator.get_height(((chunk_offset.0 * 16) + i as i32) as f64,((chunk_offset.1 * 16) + j as i32) as f64) as f32,((chunk_offset.1 * 16) + j as i32) as f32);
+            
+            if chunk_offset.0 == 0 && chunk_offset.1 == 0{
+                println!("{} ",temp_chunk[i][j]);
+            }
+            
+        }
+        eprintln!("\n");
+    }
+    
+    chunk_pool.insert(chunk_offset, ChunkMetaData{
+        chunk_offset: [chunk_offset.0 as i32, chunk_offset.1 as i32],
+        instance_offset: *instance_offset,
+        instance_count: 256,
+        aabb: AABB { 
+            min: Vec3::new((chunk_offset.0 * 16) as f32, 0.0, (chunk_offset.1 * 16) as f32),
+            max: Vec3::new((chunk_offset.0 * 16 + 16) as f32, 500.0, (chunk_offset.1 * 16 + 16) as f32)
+        },
+
+
+        chunk_data: temp_chunk,
+    });
 }

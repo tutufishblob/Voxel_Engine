@@ -1,8 +1,10 @@
 use core::f32;
+use std::collections::HashMap;
 
 use bytemuck::{bytes_of, checked::cast_slice, Pod, Zeroable};
 use glam::{Mat4, Vec2, Vec3};
 use wgpu::{core::device::queue, util::DeviceExt, Buffer};
+use crate::ChunkMetaData;
 use crate::{camera::Camera};
 use crate::textures::load_texture;
 use noise::{core::perlin, NoiseFn, Perlin, Simplex, Worley};
@@ -11,7 +13,7 @@ use crate::terrain::{self, TerrainCreator};
 pub struct BufferStorage {
     cube_vertex_buffer: Buffer,
 
-    voxel_instance_buffer: Buffer,
+    pub voxel_instance_buffer: Buffer,
     voxel_index_buffer: Buffer,
     voxel_index_length: usize,
 
@@ -19,7 +21,7 @@ pub struct BufferStorage {
 
     wireframe_instance_buffer: Buffer,
     wireframe_index_buffer: Buffer,
-    wireframe_index_length: usize,
+    //wireframe_index_length: usize,
 
     crosshair_vertex_buffer: Buffer,
     crosshair_index_buffer: Buffer,
@@ -27,7 +29,7 @@ pub struct BufferStorage {
 
 pub struct Rasterizer{
     device: wgpu::Device,
-    queue: wgpu::Queue,
+    pub queue: wgpu::Queue,
 
     aspect_ratio: f32,
 
@@ -253,25 +255,28 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
         // let limits = renderer.device.limits();
         // println!("Max buffer size: {}", limits.max_buffer_size);
 
-        let perlin = Perlin::new(0);
-        let moisture = Simplex::new(0);
-        let temperature = Worley::new(0);
-        let volatility = Simplex::new(0);
-
         let mut voxel_vertex_input: Vec<Instance> = vec![];
         let mut wireframe_vertex_input: Vec<Vec3> = vec![];
 
-        let mut voxel_index_input: Vec<u32> = vec![];
-        let mut wireframe_index_input: Vec<u32> = vec![];
+        //let mut voxel_index_input: Vec<u32> = vec![];
+        //let mut wireframe_index_input: Vec<u32> = vec![];
 
         let mut height_map: Vec<Vec<u16>> = vec![vec![0;MAPWIDTH];MAPLENGTH];
+
+
 
 
         for x in 0..MAPLENGTH {
             for z in 0..MAPWIDTH {
                 let height = terrain_creator.get_height(x as f64,z as f64);
 
+                if x <= 15 && z <= 15{
+                    println!("old [{},{},{}] ",x,height,z);
+                }
+                
                 height_map[x][z] = height as u16;
+
+
             }
         }
 
@@ -298,10 +303,13 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let voxel_instance_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let voxel_instance_buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Cube Position Vertex Buffer"),
-            contents: bytemuck::cast_slice(&voxel_vertex_input),
-            usage: wgpu::BufferUsages::VERTEX,
+            size: (100000 * std::mem::size_of::<u16>()) as u64,
+            mapped_at_creation: false,
+            //contents: bytemuck::cast_slice(&voxel_vertex_input),
+            //contents: &[],
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         let voxel_index_buffer = renderer.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -357,12 +365,12 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
                 wireframe_vertex_buffer: wireframe_vertex_buffer,
                 wireframe_instance_buffer: wireframe_instance_buffer,
                 wireframe_index_buffer: wireframe_index_buffer,
-                wireframe_index_length: wireframe_index_input.len(),
+                //wireframe_index_length: wireframe_index_input.len(),
 
                 crosshair_vertex_buffer: crosshair_vertex_buffer,
                 crosshair_index_buffer: crosshair_index_buffer,
             },
-            height_map
+             height_map
         )
 
     }
@@ -370,7 +378,7 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
 
 impl Rasterizer {
 
-    pub fn render_frame(&self, target: &wgpu::TextureView, display_buffers: &BufferStorage) {
+    pub fn render_frame(&self, target: &wgpu::TextureView, display_buffers: &BufferStorage, chunk_pool: &mut HashMap<(i32,i32), ChunkMetaData>) {
         
         
 
@@ -435,8 +443,12 @@ impl Rasterizer {
         render_pass.set_vertex_buffer(0, display_buffers.cube_vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, display_buffers.voxel_instance_buffer.slice(..));
         render_pass.set_index_buffer(display_buffers.voxel_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-        
-        render_pass.draw_indexed(0..36 as u32, 0,0..display_buffers.voxel_index_length as u32);
+        for (offsets,chunks) in chunk_pool{
+            //eprintln!("{}",chunks.instance_offset);
+            render_pass.draw_indexed(0..36 as u32, 0,chunks.instance_offset..chunks.instance_offset + chunks.instance_count);
+            //render_pass.draw_indexed(0..36 as u32, 0,0..512);// for testing
+        }
+       
 
         match (self.wireframe_pipeline.as_ref(), self.wireframe_bind_group.as_ref()) {
             
