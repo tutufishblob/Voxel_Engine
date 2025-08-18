@@ -271,7 +271,7 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
                 let height = terrain_creator.get_height(x as f64,z as f64);
 
                 if x <= 15 && z <= 15{
-                    println!("old [{},{},{}] ",x,height,z);
+                    //println!("old [{},{},{}] ",x,height,z);
                 }
                 
                 height_map[x][z] = height as u16;
@@ -305,7 +305,7 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
 
         let voxel_instance_buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Cube Position Vertex Buffer"),
-            size: (100000 * std::mem::size_of::<u16>()) as u64,
+            size: 268435456 as u64,
             mapped_at_creation: false,
             //contents: bytemuck::cast_slice(&voxel_vertex_input),
             //contents: &[],
@@ -444,7 +444,7 @@ impl Rasterizer {
         render_pass.set_vertex_buffer(1, display_buffers.voxel_instance_buffer.slice(..));
         render_pass.set_index_buffer(display_buffers.voxel_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         for (offsets,chunks) in chunk_pool{
-            //eprintln!("{}",chunks.instance_offset);
+            //eprintln!("rendered{}, {}",chunks.chunk_offset[0],chunks.chunk_offset[1]);
             render_pass.draw_indexed(0..36 as u32, 0,chunks.instance_offset..chunks.instance_offset + chunks.instance_count);
             //render_pass.draw_indexed(0..36 as u32, 0,0..512);// for testing
         }

@@ -30,7 +30,7 @@ const SENSITIVITY: f64 = 0.1;
 const CENTER: LogicalPosition<u32> = LogicalPosition{x: WIDTH/2 as u32, y: HEIGHT/2 as u32};
 const GRAVITY: f32 = 0.03;
 
-const RENDER_DISTANCE: i16 = 1;
+const RENDER_DISTANCE: i16 = 32;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -78,7 +78,7 @@ async fn main() -> Result<()> {
 
     let mut terrain_creator = TerrainCreator::new();
 
-    update_chunks(&mut current_view, &mut chunk_pool, Vec2::ZERO, &mut terrain_creator,&mut renderer,&display_buffers,&mut instance_offset);
+    initial_chunk_load(&mut current_view, &mut chunk_pool, &mut terrain_creator,&mut renderer,&display_buffers);
 
     _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
     window.set_cursor_visible(false);
@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
 
                 if now - last_update >= UPDATE_INTERVAL {
                     //Println!("pre move{}",current_view.position);
-                    update_velocity(&mut renderer, &mut current_view, &pressed_key, &height_map,flight_mode, &mut last_jump,&mut chunk_pool,&mut terrain_creator,&display_buffers,&mut instance_offset);
+                    update_velocity(&mut renderer, &mut current_view, &pressed_key, &height_map,flight_mode, &mut last_jump,&mut chunk_pool,&mut terrain_creator,&display_buffers);
                     
                     last_update = now;
 
@@ -136,7 +136,7 @@ async fn main() -> Result<()> {
                                         flight_mode = !flight_mode;
                                     }
                                     last_space_release = Instant::now();
-                                    eprintln!("{}",flight_mode);
+                                    //eprintln!("{}",flight_mode);
                                 }
 
                                 pressed_key.remove(&event.physical_key);
@@ -199,6 +199,14 @@ async fn connect_to_gpu(window: &Window) -> Result<(wgpu::Device, wgpu::Queue, w
         .await
         .context("failed to find a compatible adapter")?;
 
+        // let limits = adapter.limits(); //finds max buffer size, needed to do for max render distance
+
+        // println!("Max storage buffer binding size: {}", limits.max_storage_buffer_binding_size);
+        // println!("Max uniform buffer binding size: {}", limits.max_uniform_buffer_binding_size);
+        // println!("Max buffer size: {}", limits.max_buffer_size);
+
+        // println!("{}",(100000 * std::mem::size_of::<Vec3>()) as u64);
+
     // Connect to the GPU. "device" represents the connection to the GPU and allows us to create
     // resources like buffers, textures, and pipelines. "queue" represents the command queue that
     // we use to submit commands to the GPU.
@@ -231,7 +239,7 @@ async fn connect_to_gpu(window: &Window) -> Result<(wgpu::Device, wgpu::Queue, w
     Ok((device, queue, surface))
 }
 
-pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pressed_keys: &HashSet<PhysicalKey>, height_map: &Vec<Vec<u16>>, flight_mode: bool, last_jump: &mut Instant, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>,terrain_creator:&mut TerrainCreator,display_buffers: &BufferStorage, instance_offset:&mut u32) {
+pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pressed_keys: &HashSet<PhysicalKey>, height_map: &Vec<Vec<u16>>, flight_mode: bool, last_jump: &mut Instant, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>,terrain_creator:&mut TerrainCreator,display_buffers: &BufferStorage) {
    
     //code for making cam spin, used early in dev...
     // {let angle = std::f32::consts::PI / 64.0; // 45 degrees 
@@ -328,7 +336,7 @@ pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pre
 
     //Println!("before update_pos{}",current_view.position);
 
-    update_position(renderer, current_view, height_map, chunk_pool,terrain_creator,&display_buffers,instance_offset);
+    update_position(renderer, current_view, height_map, chunk_pool,terrain_creator,&display_buffers);
 
 
     //Println!("after update_pos{}",current_view.position);
@@ -373,7 +381,7 @@ pub fn update_aim(renderer: &mut Rasterizer, current_view: &mut Camera, delta: (
 
 }
 
-pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera,  height_map: &Vec<Vec<u16>>, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>,terrain_creator:&mut TerrainCreator,display_buffers: &BufferStorage,instance_offset:&mut u32) {
+pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera,  height_map: &Vec<Vec<u16>>, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>,terrain_creator:&mut TerrainCreator,display_buffers: &BufferStorage) {
     
 
     //Println!("before move_player{}",current_view.position);
@@ -382,7 +390,7 @@ pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera,  he
     current_view.recompute_chunk();
 
     if current_view.current_chunk != temp_chunk{
-        update_chunks(current_view, chunk_pool, temp_chunk, terrain_creator,renderer,&display_buffers,instance_offset);
+        update_chunks(current_view, chunk_pool, temp_chunk, terrain_creator,renderer,&display_buffers);
     }
 
     //Println!("after move_player{}",current_view.position);
@@ -397,22 +405,106 @@ pub fn update_position(renderer: &mut Rasterizer, current_view: &mut Camera,  he
 
 }
 
-pub fn update_chunks(current_view: &mut Camera, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>, previous_chunk: Vec2, terrain_creator:&mut TerrainCreator, renderer: &mut Rasterizer, display_buffers: &BufferStorage, instance_offset:&mut u32){
+pub fn initial_chunk_load(current_view: &mut Camera, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>, terrain_creator:&mut TerrainCreator, renderer: &mut Rasterizer, display_buffers: &BufferStorage){
     let current_chunk = current_view.current_chunk;
-    eprintln!("{}",current_chunk);
-    let chunk_difference = current_chunk - previous_chunk;
-    
-    for i in -RENDER_DISTANCE..RENDER_DISTANCE{
-        for j in -RENDER_DISTANCE..RENDER_DISTANCE {
+    let mut instance_offset = 0;
+    for i in -RENDER_DISTANCE..=RENDER_DISTANCE{
+        for j in -RENDER_DISTANCE..=RENDER_DISTANCE {
             let adjusted_chunk = (current_chunk.x as i32 + i as i32, current_chunk.y as i32 + j as i32);
             if !chunk_pool.contains_key(&adjusted_chunk){
-                generate_chunk(adjusted_chunk, terrain_creator, chunk_pool, instance_offset);
-                renderer.queue.write_buffer(&display_buffers.voxel_instance_buffer, (*instance_offset * std::mem::size_of::<Vec3>() as u32) as u64, bytes_of(&chunk_pool[&adjusted_chunk].chunk_data));
-                *instance_offset+=256;
+                generate_chunk(adjusted_chunk, terrain_creator, chunk_pool,&mut instance_offset);
+                renderer.queue.write_buffer(&display_buffers.voxel_instance_buffer, (instance_offset * std::mem::size_of::<Vec3>() as u32) as u64, bytes_of(&chunk_pool[&adjusted_chunk].chunk_data));
+                instance_offset+=256;
+            }
+        }
+    }
+}
+
+pub fn update_chunks(current_view: &mut Camera, chunk_pool: &mut HashMap<(i32,i32),ChunkMetaData>, previous_chunk: Vec2, terrain_creator:&mut TerrainCreator, renderer: &mut Rasterizer, display_buffers: &BufferStorage){
+    let current_chunk = current_view.current_chunk;
+    //eprintln!("{}",current_chunk);
+    let chunk_difference = current_chunk - previous_chunk;
+
+    if chunk_difference.x != 0.0 && chunk_difference.y != 0.0{
+
+        for i in -RENDER_DISTANCE..=RENDER_DISTANCE {
+
+            let adjusted_chunk = (current_chunk.x as i32 + ((RENDER_DISTANCE as i32) * chunk_difference.x as i32), current_chunk.y as i32 - i as i32);
+            let chunk_for_removal = (current_chunk.x as i32 - ((RENDER_DISTANCE as i32 + 1) * chunk_difference.x as i32), (current_chunk.y as i32 - chunk_difference.y as i32) + i as i32);
+
+            match chunk_pool.remove(&chunk_for_removal) {
+                Some(chunk) => {
+                    //eprintln!("x some found {}, {}", chunk_for_removal.0,chunk_for_removal.1);
+                    //eprintln!("x replacement {}, {}", adjusted_chunk.0,adjusted_chunk.1);
+                    let mut temp_instance_offset = chunk.instance_offset;
+                    if !chunk_pool.contains_key(&adjusted_chunk){
+                        generate_chunk(adjusted_chunk, terrain_creator, chunk_pool,&mut temp_instance_offset);
+                        renderer.queue.write_buffer(&display_buffers.voxel_instance_buffer, (temp_instance_offset * std::mem::size_of::<Vec3>() as u32) as u64, bytes_of(&chunk_pool[&adjusted_chunk].chunk_data));
+                        //eprintln!("x replaced {}, {}", adjusted_chunk.0,adjusted_chunk.1);
+                    }
+                }
+                None => {
+                    //eprintln!("x none found {}, {}", chunk_for_removal.0,chunk_for_removal.1);
+                }
+            }
+
+        } 
+        //let mut corner_modifier = 1;// because of the way the loop works, i need to not check one of the corners multiple times, but the corner changes depending on which direction i go
+
+        for j in -RENDER_DISTANCE..=RENDER_DISTANCE {
+            let adjusted_chunk = (current_chunk.x as i32  - j as i32, current_chunk.y as i32 + ((RENDER_DISTANCE as i32) * chunk_difference.y as i32));
+            let chunk_for_removal = ((current_chunk.x as i32 - chunk_difference.x as i32) + j as i32, current_chunk.y as i32 - ((RENDER_DISTANCE as i32 + 1) * chunk_difference.y as i32));
+            
+            //let mut temp_instance_offset = chunk_pool[&chunk_for_removal].instance_offset;
+            match chunk_pool.remove(&chunk_for_removal) {
+                Some(chunk) => {
+                    //eprintln!("z some found {}, {}", chunk_for_removal.0,chunk_for_removal.1);
+                    //eprintln!("z replacement {}, {}", adjusted_chunk.0,adjusted_chunk.1);
+                    let mut temp_instance_offset = chunk.instance_offset;
+                    if !chunk_pool.contains_key(&adjusted_chunk){
+                        generate_chunk(adjusted_chunk, terrain_creator, chunk_pool,&mut temp_instance_offset);
+                        renderer.queue.write_buffer(&display_buffers.voxel_instance_buffer, (temp_instance_offset * std::mem::size_of::<Vec3>() as u32) as u64, bytes_of(&chunk_pool[&adjusted_chunk].chunk_data));
+                        //*instance_offset+=256;
+                        //eprintln!("z replaced {}, {}", adjusted_chunk.0,adjusted_chunk.1);
+                    }
+                }
+                None => {
+                    //eprintln!("y none found {}, {}", chunk_for_removal.0,chunk_for_removal.1);
+                }
+            }
+
+
+            
+        } 
+    }
+    else if chunk_difference.x != 0.0{
+        for i in -RENDER_DISTANCE..=RENDER_DISTANCE{
+            let adjusted_chunk = (current_chunk.x as i32 + ((RENDER_DISTANCE as i32) * chunk_difference.x as i32), current_chunk.y as i32 + i as i32);
+            let chunk_for_removal = (current_chunk.x as i32 - ((RENDER_DISTANCE as i32 + 1) * chunk_difference.x as i32), current_chunk.y as i32 + i as i32);
+            let mut temp_instance_offset = chunk_pool[&chunk_for_removal].instance_offset;
+            chunk_pool.remove(&chunk_for_removal);
+            if !chunk_pool.contains_key(&adjusted_chunk){
+                generate_chunk(adjusted_chunk, terrain_creator, chunk_pool,&mut temp_instance_offset);
+                renderer.queue.write_buffer(&display_buffers.voxel_instance_buffer, (temp_instance_offset * std::mem::size_of::<Vec3>() as u32) as u64, bytes_of(&chunk_pool[&adjusted_chunk].chunk_data));
+                //*instance_offset+=256;
+            }
+        }
+    }
+    else if chunk_difference.y != 0.0 {
+        for j in -RENDER_DISTANCE..=RENDER_DISTANCE {
+            let adjusted_chunk = (current_chunk.x as i32  + j as i32, current_chunk.y as i32 + ((RENDER_DISTANCE as i32) * chunk_difference.y as i32));
+            let chunk_for_removal = (current_chunk.x as i32 + j as i32, current_chunk.y as i32 - ((RENDER_DISTANCE as i32 + 1) * chunk_difference.y as i32));
+            
+            let mut temp_instance_offset = chunk_pool[&chunk_for_removal].instance_offset;
+            chunk_pool.remove(&chunk_for_removal);
+            if !chunk_pool.contains_key(&adjusted_chunk){
+                generate_chunk(adjusted_chunk, terrain_creator, chunk_pool,&mut temp_instance_offset);
+                renderer.queue.write_buffer(&display_buffers.voxel_instance_buffer, (temp_instance_offset * std::mem::size_of::<Vec3>() as u32) as u64, bytes_of(&chunk_pool[&adjusted_chunk].chunk_data));
+                //*instance_offset+=256;
             }
         }   
     }
-
+    
 
 }
 
@@ -421,13 +513,9 @@ fn generate_chunk(chunk_offset: (i32,i32), terrain_creator:&mut TerrainCreator,c
     for i in 0..16 {
         for j in 0..16 {
             temp_chunk[i][j] = Vec3::new(((chunk_offset.0 * 16) + i as i32) as f32,terrain_creator.get_height(((chunk_offset.0 * 16) + i as i32) as f64,((chunk_offset.1 * 16) + j as i32) as f64) as f32,((chunk_offset.1 * 16) + j as i32) as f32);
-            
-            if chunk_offset.0 == 0 && chunk_offset.1 == 0{
-                println!("{} ",temp_chunk[i][j]);
-            }
-            
+                       
         }
-        eprintln!("\n");
+        
     }
     
     chunk_pool.insert(chunk_offset, ChunkMetaData{
