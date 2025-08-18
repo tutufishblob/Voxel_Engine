@@ -1,3 +1,5 @@
+use crate::camera::Frustrum;
+
 use {
     crate::{camera::Camera,terrain::TerrainCreator, physics::move_player, render::{generate_and_write_terrain, BufferStorage, Rasterizer}, types::AABB}, anyhow::{Context, Result}, glam::{Mat4, Vec2, Vec3}, noise::{NoiseFn, Perlin}, std::{collections::{HashMap, HashSet}, thread::current, time::{Duration,Instant}, vec}, wgpu::TextureView, winit::{
         dpi::{LogicalPosition, PhysicalPosition, Position}, event::{self, DeviceEvent, ElementState, Event, KeyEvent, WindowEvent}, event_loop::{ControlFlow, EventLoop}, keyboard::{KeyCode, PhysicalKey}, window::{Window, WindowBuilder},
@@ -30,7 +32,7 @@ const SENSITIVITY: f64 = 0.1;
 const CENTER: LogicalPosition<u32> = LogicalPosition{x: WIDTH/2 as u32, y: HEIGHT/2 as u32};
 const GRAVITY: f32 = 0.03;
 
-const RENDER_DISTANCE: i16 = 32;
+const RENDER_DISTANCE: i16 = 48;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -78,6 +80,8 @@ async fn main() -> Result<()> {
 
     let mut terrain_creator = TerrainCreator::new();
 
+    let mut frustrum: Frustrum = Frustrum::new(&mut renderer.camera.view, &mut renderer.camera.projection);
+
     initial_chunk_load(&mut current_view, &mut chunk_pool, &mut terrain_creator,&mut renderer,&display_buffers);
 
     _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
@@ -101,6 +105,8 @@ async fn main() -> Result<()> {
 
                     renderer.camera.view = current_view.view_matrix();
 
+                    frustrum.update(&mut renderer.camera.view,&mut renderer.camera.projection);
+
                     renderer.uniforms.mvp = renderer.camera.projection * renderer.camera.view * renderer.camera.model;
 
 
@@ -114,7 +120,7 @@ async fn main() -> Result<()> {
             },
             Event::DeviceEvent {event ,..} => {
                 if let DeviceEvent::MouseMotion { delta } = event{
-                    update_aim(&mut renderer, &mut current_view, delta);
+                    update_aim(&mut renderer, &mut current_view, delta, &mut frustrum);
                 }
             }
             Event::WindowEvent { event, .. } => match event {
@@ -165,7 +171,7 @@ async fn main() -> Result<()> {
 
                     
 
-                    renderer.render_frame(&render_target, &display_buffers, &mut chunk_pool);
+                    renderer.render_frame(&render_target, &display_buffers, &mut chunk_pool, &mut frustrum);
 
                     frame.present();
                     
@@ -346,7 +352,7 @@ pub fn update_velocity(renderer: &mut Rasterizer, current_view: &mut Camera, pre
 
 }
 
-pub fn update_aim(renderer: &mut Rasterizer, current_view: &mut Camera, delta: (f64,f64)) {
+pub fn update_aim(renderer: &mut Rasterizer, current_view: &mut Camera, delta: (f64,f64), frustrum: &mut Frustrum) {
 
 
 
@@ -376,6 +382,8 @@ pub fn update_aim(renderer: &mut Rasterizer, current_view: &mut Camera, delta: (
 
 
     renderer.camera.view = current_view.view_matrix();
+
+    frustrum.update(&mut renderer.camera.view,&mut renderer.camera.projection);
 
     renderer.uniforms.mvp = renderer.camera.projection * renderer.camera.view * renderer.camera.model;
 
@@ -524,7 +532,7 @@ fn generate_chunk(chunk_offset: (i32,i32), terrain_creator:&mut TerrainCreator,c
         instance_count: 256,
         aabb: AABB { 
             min: Vec3::new((chunk_offset.0 * 16) as f32, 0.0, (chunk_offset.1 * 16) as f32),
-            max: Vec3::new((chunk_offset.0 * 16 + 16) as f32, 500.0, (chunk_offset.1 * 16 + 16) as f32)
+            max: Vec3::new((chunk_offset.0 * 16 + 16) as f32, 512.0, (chunk_offset.1 * 16 + 16) as f32)
         },
 
 

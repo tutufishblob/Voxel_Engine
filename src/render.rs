@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use bytemuck::{bytes_of, checked::cast_slice, Pod, Zeroable};
 use glam::{Mat4, Vec2, Vec3};
 use wgpu::{core::device::queue, util::DeviceExt, Buffer};
+use crate::camera::Frustrum;
 use crate::ChunkMetaData;
 use crate::{camera::Camera};
 use crate::textures::load_texture;
@@ -378,7 +379,7 @@ pub fn generate_and_write_terrain(renderer: &Rasterizer) -> (BufferStorage, Vec<
 
 impl Rasterizer {
 
-    pub fn render_frame(&self, target: &wgpu::TextureView, display_buffers: &BufferStorage, chunk_pool: &mut HashMap<(i32,i32), ChunkMetaData>) {
+    pub fn render_frame(&self, target: &wgpu::TextureView, display_buffers: &BufferStorage, chunk_pool: &mut HashMap<(i32,i32), ChunkMetaData>, frustrum: &mut Frustrum) {
         
         
 
@@ -445,7 +446,11 @@ impl Rasterizer {
         render_pass.set_index_buffer(display_buffers.voxel_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         for (offsets,chunks) in chunk_pool{
             //eprintln!("rendered{}, {}",chunks.chunk_offset[0],chunks.chunk_offset[1]);
-            render_pass.draw_indexed(0..36 as u32, 0,chunks.instance_offset..chunks.instance_offset + chunks.instance_count);
+            
+            if frustrum.box_in_fov(&chunks.aabb){
+                render_pass.draw_indexed(0..36 as u32, 0,chunks.instance_offset..chunks.instance_offset + chunks.instance_count);
+            }
+            
             //render_pass.draw_indexed(0..36 as u32, 0,0..512);// for testing
         }
        
